@@ -1,6 +1,5 @@
 // test/core/pipeline/silence_parser_test.dart
 import 'package:flutter_test/flutter_test.dart';
-import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/pipeline/silence_parser.dart';
 
 const _log = '''

@@ -2220,6 +2220,8 @@ Expected: FAIL — файл `speechkit_client.dart` не существует.
 
 ```dart
 // lib/core/cloud/speechkit_client.dart
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'api_errors.dart';
@@ -2249,7 +2251,7 @@ class SpeechKitClient {
     }
 
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await dio.post<String>(
         '$baseUrl/speech/v1/stt:recognize',
         queryParameters: {
           'topic': 'general',
@@ -2262,10 +2264,17 @@ class SpeechKitClient {
             'Authorization': 'Api-Key $apiKey',
             Headers.contentLengthHeader: oggBytes.length,
           },
-          responseType: ResponseType.json,
+          // Тело разбираем вручную: SyncTransformer у Dio решает, парсить ли
+          // ответ как JSON, по заголовку Content-Type сервера, а не по
+          // запрошенному responseType. Реальный SpeechKit отдаёт
+          // application/json, но полагаться на чужой заголовок не будем.
+          responseType: ResponseType.plain,
         ),
       );
-      return (response.data?['result'] as String?) ?? '';
+      final body = response.data;
+      if (body == null || body.isEmpty) return '';
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      return (decoded['result'] as String?) ?? '';
     } on DioException catch (e) {
       throw _mapError(e);
     }
@@ -2453,6 +2462,8 @@ Expected: FAIL — файл `translate_client.dart` не существует.
 
 ```dart
 // lib/core/cloud/translate_client.dart
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'api_errors.dart';
@@ -2516,7 +2527,7 @@ class TranslateClient {
 
     for (final batch in splitIntoBatches(texts)) {
       try {
-        final response = await dio.post<Map<String, dynamic>>(
+        final response = await dio.post<dynamic>(
           '$baseUrl/translate/v2/translate',
           data: {
             'targetLanguageCode': 'ru',
@@ -2525,7 +2536,16 @@ class TranslateClient {
           },
           options: Options(headers: {'Authorization': 'Api-Key $apiKey'}),
         );
-        final translations = (response.data?['translations'] as List?) ?? const [];
+        // Dio парсит тело в Map автоматически, только если сервер прислал
+        // корректный Content-Type: application/json. Не все реализации его
+        // выставляют, поэтому декодируем вручную, если пришла сырая строка.
+        final raw = response.data;
+        final Map<String, dynamic>? body = raw == null
+            ? null
+            : raw is String
+                ? jsonDecode(raw) as Map<String, dynamic>
+                : raw as Map<String, dynamic>;
+        final translations = (body?['translations'] as List?) ?? const [];
         result.addAll(translations.map((t) => (t as Map)['text'] as String));
       } on DioException catch (e) {
         throw _mapError(e);
@@ -3048,6 +3068,20 @@ Expected: `All tests passed!`
 git add lib/core/pipeline/burner.dart assets/fonts/NotoSans-Regular.ttf test/core/pipeline/burner_test.dart
 git commit -m "Вшивание субтитров и проверка, что они действительно видны"
 ```
+
+> **Внимание: фильтра `subtitles` может не быть в ffmpeg разработчика.**
+> Он собирается только вместе с libass, а ffmpeg из homebrew-core (macOS)
+> идёт **без** него — `ffmpeg -filters | grep subtitles` не находит ничего,
+> и вызов падает на разборе фильтра, ещё не начав кодировать. В релизных
+> сборках libass есть всегда (Windows — gyan.dev release-essentials,
+> Android — ffmpeg_kit_flutter_new full-gpl), так что на продукт это не
+> влияет. Поэтому четыре теста этой задачи начинаются с проверки наличия
+> фильтра и помечаются пропущенными с объяснением причины, если его нет:
+> ложный успех здесь опаснее пропуска. Чтобы проверить вшивание на macOS
+> по-настоящему, поставьте сборку с libass:
+> `brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-libass`.
+> Проверяемыми без libass остаются счётчик светлых пикселей и то, что копия
+> видео без субтитров проверку не проходит.
 
 ---
 

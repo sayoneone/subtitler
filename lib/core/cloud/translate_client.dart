@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'api_errors.dart';
@@ -61,7 +63,7 @@ class TranslateClient {
 
     for (final batch in splitIntoBatches(texts)) {
       try {
-        final response = await dio.post<Map<String, dynamic>>(
+        final response = await dio.post<dynamic>(
           '$baseUrl/translate/v2/translate',
           data: {
             'targetLanguageCode': 'ru',
@@ -70,7 +72,16 @@ class TranslateClient {
           },
           options: Options(headers: {'Authorization': 'Api-Key $apiKey'}),
         );
-        final translations = (response.data?['translations'] as List?) ?? const [];
+        // Dio парсит тело в Map автоматически, только если сервер прислал
+        // корректный Content-Type: application/json. Не все реализации его
+        // выставляют, поэтому декодируем вручную, если пришла сырая строка.
+        final raw = response.data;
+        final Map<String, dynamic>? body = raw == null
+            ? null
+            : raw is String
+                ? jsonDecode(raw) as Map<String, dynamic>
+                : raw as Map<String, dynamic>;
+        final translations = (body?['translations'] as List?) ?? const [];
         result.addAll(translations.map((t) => (t as Map)['text'] as String));
       } on DioException catch (e) {
         throw _mapError(e);

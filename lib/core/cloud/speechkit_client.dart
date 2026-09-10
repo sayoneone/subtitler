@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 
 import 'api_errors.dart';
@@ -27,7 +29,7 @@ class SpeechKitClient {
     }
 
     try {
-      final response = await dio.post<Map<String, dynamic>>(
+      final response = await dio.post<String>(
         '$baseUrl/speech/v1/stt:recognize',
         queryParameters: {
           'topic': 'general',
@@ -40,10 +42,17 @@ class SpeechKitClient {
             'Authorization': 'Api-Key $apiKey',
             Headers.contentLengthHeader: oggBytes.length,
           },
-          responseType: ResponseType.json,
+          // Тело разбираем вручную: SyncTransformer у Dio решает, парсить ли
+          // ответ как JSON, по заголовку Content-Type сервера, а не по
+          // запрошенному responseType. Реальный SpeechKit отдаёт
+          // application/json, но полагаться на это не будем.
+          responseType: ResponseType.plain,
         ),
       );
-      return (response.data?['result'] as String?) ?? '';
+      final body = response.data;
+      if (body == null || body.isEmpty) return '';
+      final decoded = jsonDecode(body) as Map<String, dynamic>;
+      return (decoded['result'] as String?) ?? '';
     } on DioException catch (e) {
       throw _mapError(e);
     }
