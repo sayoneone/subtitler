@@ -7,7 +7,7 @@ import 'package:subtitler/core/pipeline/segment_cutter.dart';
 void main() {
   late Directory tmp;
   late String tone;
-  final runner = ProcessFfmpegRunner();
+  final runner = ProcessFfmpegRunner.fromEnvironment();
 
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('cutter_test_');

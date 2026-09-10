@@ -27,6 +27,21 @@ void main() {
     expect(result.log, isNotEmpty);
   });
 
+  test('Путь к ffmpeg берётся из окружения, если задан', () {
+    final custom = ProcessFfmpegRunner.fromEnvironment({
+      kFfmpegPathEnv: '/opt/custom/ffmpeg',
+      kFfprobePathEnv: '/opt/custom/ffprobe',
+    });
+    expect(custom.ffmpegPath, '/opt/custom/ffmpeg');
+    expect(custom.ffprobePath, '/opt/custom/ffprobe');
+  });
+
+  test('Без переменных окружения берётся ffmpeg из PATH', () {
+    final fallback = ProcessFfmpegRunner.fromEnvironment(const {});
+    expect(fallback.ffmpegPath, 'ffmpeg');
+    expect(fallback.ffprobePath, 'ffprobe');
+  });
+
   test('FfmpegResult.ok привязан к нулевому коду', () {
     expect(const FfmpegResult(exitCode: 0, log: '').ok, isTrue);
     expect(const FfmpegResult(exitCode: 1, log: '').ok, isFalse);

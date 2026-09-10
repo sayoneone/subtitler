@@ -34,14 +34,22 @@ dart run tool/pipeline_cli.dart test/acceptance/samples/v35.mp4 --lang tr-TR
 
 ## Про вшивание на macOS
 
-`ffmpeg` из homebrew-core собран **без libass**, поэтому фильтра `subtitles`
+`ffmpeg` из homebrew-core собран **без libass** (проверить:
+`ffmpeg -filters | grep subtitles` — пусто), поэтому фильтра `subtitles`
 в нём нет и шаг вшивания на такой машине не выполняется: CLI честно
 сообщает об этом и завершается с кодом 3, успев записать оба `.srt`.
-Чтобы прогнать весь путь целиком, поставьте сборку с libass:
+
+Системный ffmpeg менять не нужно. Достаточно положить рядом сборку с
+libass и указать на неё переменной окружения — её понимают и тесты,
+и CLI:
 
 ```bash
-brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-libass
+export SUBTITLER_FFMPEG=/путь/к/ffmpeg-с-libass
+export SUBTITLER_FFPROBE=/путь/к/ffprobe   # необязательно
+flutter test                                # пропущенные тесты вшивания оживут
+dart run tool/pipeline_cli.dart samples/v35.mp4 --lang tr-TR
 ```
 
 В релизных сборках libass есть всегда: на Windows — gyan.dev
-release-essentials, на Android — ffmpeg_kit_flutter_new full-gpl.
+release-essentials, на Android — ffmpeg_kit_flutter_new full-gpl,
+поэтому на продукт отсутствие libass у разработчика не влияет.

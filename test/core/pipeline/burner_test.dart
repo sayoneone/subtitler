@@ -8,20 +8,22 @@ import 'package:subtitler/core/pipeline/burner.dart';
 /// Android — ffmpeg_kit_flutter_new full-gpl), но ffmpeg из homebrew-core
 /// собран без libass, поэтому на такой машине вшивание проверить нечем.
 /// Эти тесты честно помечаются пропущенными, а не выдают ложный успех.
+final _runner = ProcessFfmpegRunner.fromEnvironment();
+
 String? _burnSkipReason() {
-  final result = Process.runSync('ffmpeg', ['-hide_banner', '-filters']);
+  final result = Process.runSync(_runner.ffmpegPath, ['-hide_banner', '-filters']);
   final hasSubtitles =
       RegExp(r'\bsubtitles\b').hasMatch(result.stdout as String);
   if (hasSubtitles) return null;
   return 'ffmpeg в PATH собран без libass: фильтра subtitles нет, '
-      'вшивание на этой машине непроверяемо. Поставьте сборку с libass '
-      '(например, brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-libass) '
-      'или проверяйте вшивание на Windows/Android.';
+      'вшивание на этой машине непроверяемо. Укажите путь к сборке с libass '
+      'через переменную $kFfmpegPathEnv или проверяйте вшивание '
+      'на Windows/Android.';
 }
 
 void main() {
   late Directory tmp;
-  final runner = ProcessFfmpegRunner();
+  final runner = _runner;
   late String video;
   late String srt;
   final burnSkip = _burnSkipReason();

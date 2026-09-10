@@ -69,7 +69,7 @@ class FakeTranslate implements TranslateClient {
 void main() {
   late Directory tmp;
   late String video;
-  final runner = ProcessFfmpegRunner();
+  final runner = ProcessFfmpegRunner.fromEnvironment();
   var workCounter = 0;
 
   setUpAll(() async {

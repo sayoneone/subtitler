@@ -4,9 +4,14 @@ import 'dart:io';
 
 import 'ffmpeg_runner.dart';
 
+/// Переменные окружения, которыми разработчик указывает свой ffmpeg.
+/// Нужны, потому что системный ffmpeg бывает собран без libass, а фильтр
+/// `subtitles` без него не существует. В релизе путь задаётся явно —
+/// на Windows это `tools/ffmpeg/ffmpeg.exe` рядом с приложением.
+const String kFfmpegPathEnv = 'SUBTITLER_FFMPEG';
+const String kFfprobePathEnv = 'SUBTITLER_FFPROBE';
+
 /// Десктопная реализация: ffmpeg как отдельный процесс.
-/// На Windows путь укажет на `tools/ffmpeg/ffmpeg.exe` рядом с приложением,
-/// в тестах и разработке берётся из PATH.
 class ProcessFfmpegRunner implements FfmpegRunner {
   final String ffmpegPath;
   final String ffprobePath;
@@ -15,6 +20,16 @@ class ProcessFfmpegRunner implements FfmpegRunner {
     this.ffmpegPath = 'ffmpeg',
     this.ffprobePath = 'ffprobe',
   });
+
+  /// Берёт пути из окружения, а если их нет — из PATH.
+  /// [env] подменяется в тестах.
+  factory ProcessFfmpegRunner.fromEnvironment([Map<String, String>? env]) {
+    final source = env ?? Platform.environment;
+    return ProcessFfmpegRunner(
+      ffmpegPath: source[kFfmpegPathEnv] ?? 'ffmpeg',
+      ffprobePath: source[kFfprobePathEnv] ?? 'ffprobe',
+    );
+  }
 
   static final _outTimeUs = RegExp(r'out_time_us=(\d+)');
 

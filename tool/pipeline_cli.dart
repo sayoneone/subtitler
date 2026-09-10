@@ -38,7 +38,7 @@ Future<void> main(List<String> args) async {
   }
 
   final dio = Dio();
-  final runner = ProcessFfmpegRunner();
+  final runner = ProcessFfmpegRunner.fromEnvironment();
   final workDir = Directory.systemTemp.createTempSync('subtitler_cli_').path;
 
   final pipeline = Pipeline(
@@ -69,12 +69,12 @@ Future<void> main(List<String> args) async {
     ..writeln('Реплик: ${session.cues.length}, на проверку: $flagged')
     ..writeln('Субтитры: ${base}_orig.srt и $ruSrtPath');
 
-  if (!_hasSubtitlesFilter()) {
+  if (!_hasSubtitlesFilter(runner)) {
     stderr.writeln(
         'Вшивание пропущено: ffmpeg в PATH собран без libass, фильтра '
-        'subtitles в нём нет. Субтитры выше готовы, вшить их можно сборкой '
-        'с libass (brew install homebrew-ffmpeg/ffmpeg/ffmpeg --with-libass) '
-        'или на Windows/Android, где libass есть в комплекте.');
+        'subtitles в нём нет. Субтитры выше готовы; чтобы вшить их, укажите '
+        'сборку с libass через переменную $kFfmpegPathEnv или соберите '
+        'на Windows/Android, где libass есть в комплекте.');
     exit(3);
   }
 
@@ -100,7 +100,7 @@ Future<void> main(List<String> args) async {
   stdout.writeln('Готово: $output (субтитры в кадре видны)');
 }
 
-bool _hasSubtitlesFilter() {
-  final result = Process.runSync('ffmpeg', ['-hide_banner', '-filters']);
+bool _hasSubtitlesFilter(ProcessFfmpegRunner runner) {
+  final result = Process.runSync(runner.ffmpegPath, ['-hide_banner', '-filters']);
   return RegExp(r'\bsubtitles\b').hasMatch(result.stdout as String);
 }
