@@ -213,6 +213,14 @@ class _DebugScreenState extends State<DebugScreen> {
         const SizedBox(height: 6),
         Text(c.keyError!, style: const TextStyle(color: Colors.red, fontSize: 12)),
       ],
+      if (c.storageWorks == false) ...[
+        const SizedBox(height: 6),
+        const Text(
+          'Хранилище ключа недоступно — ключ работает в этом запуске, '
+          'но при следующем его придётся ввести заново. Подробности в журнале.',
+          style: TextStyle(color: Colors.orange, fontSize: 12),
+        ),
+      ],
     ]);
   }
 

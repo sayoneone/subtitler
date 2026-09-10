@@ -29,7 +29,19 @@ class DebugController extends ChangeNotifier {
   static const _keyStorageName = 'yc_api_key';
 
   final DebugLog log = DebugLog.instance;
-  final _storage = const FlutterSecureStorage();
+
+  /// `usesDataProtectionKeychain: false` — принципиальный момент для macOS.
+  /// По умолчанию пакет просится в «защищённую» Связку ключей, а она требует
+  /// entitlement и подписи с Team ID; у приложения без песочницы это даёт
+  /// ошибку −34018 «A required entitlement isn't present». Обычная Связка
+  /// работает без всего этого. На Windows и Android опция не действует —
+  /// там свои хранилища (Credential Manager и Keystore).
+  final _storage = const FlutterSecureStorage(
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+  );
+
+  /// Удалось ли вообще пользоваться хранилищем ключа.
+  bool? storageWorks;
 
   AppRuntime? runtime;
   FfmpegInfo? ffmpeg;
@@ -80,7 +92,8 @@ class DebugController extends ChangeNotifier {
       log.error('Не удалось подготовить папки приложения: $e');
     }
     await detectFfmpeg();
-    final stored = await _storage.read(key: _keyStorageName);
+    await _checkStorage();
+    final stored = await _readKey();
     if (stored != null && stored.isNotEmpty) {
       apiKey = stored;
       log.redact(apiKey);
@@ -89,6 +102,37 @@ class DebugController extends ChangeNotifier {
       log.info('Ключ ещё не сохранён');
     }
     notifyListeners();
+  }
+
+  /// Проверяет хранилище на старте: записывает и читает пробное значение.
+  /// Лучше узнать о неработающей Связке сразу, чем после ввода ключа.
+  Future<void> _checkStorage() async {
+    try {
+      await _storage
+          .write(key: 'storage_probe', value: 'ok')
+          .timeout(const Duration(seconds: 10));
+      final back = await _storage.read(key: 'storage_probe');
+      await _storage.delete(key: 'storage_probe');
+      storageWorks = back == 'ok';
+      log.info(storageWorks!
+          ? 'Хранилище ключа работает'
+          : 'Хранилище ключа отвечает, но значение не сохраняется');
+    } catch (e) {
+      storageWorks = false;
+      log.warn('Хранилище ключа недоступно: $e. Ключ придётся вводить '
+          'при каждом запуске.');
+    }
+  }
+
+  Future<String?> _readKey() async {
+    try {
+      return await _storage
+          .read(key: _keyStorageName)
+          .timeout(const Duration(seconds: 10));
+    } catch (e) {
+      log.warn('Не удалось прочитать сохранённый ключ: $e');
+      return null;
+    }
   }
 
   /// Общие настройки сети. Без явных таймаутов зависший запрос подвесил бы
