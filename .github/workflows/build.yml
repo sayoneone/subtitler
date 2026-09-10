@@ -6,18 +6,20 @@ name: Сборка
 on:
   workflow_dispatch:
   push:
+    branches: [main]
     tags: ['v*']
 
 env:
   FLUTTER_VERSION: '3.44.6'
-  # Сборка с libass: фильтр subtitles без неё не существует.
+  # Сборка с libass: без неё фильтра subtitles не существует и вшивание
+  # субтитров невозможно.
   FFMPEG_URL: 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip'
 
 jobs:
   windows:
     runs-on: windows-2022
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - uses: subosito/flutter-action@v2
         with:
@@ -27,14 +29,10 @@ jobs:
       - name: Зависимости
         run: flutter pub get
 
-      - name: Анализ и тесты
-        run: |
-          flutter analyze
-          flutter test
-
-      - name: Сборка
-        run: flutter build windows --release
-
+      # ffmpeg нужен ДО тестов: часть тестов реально запускает его, а на
+      # раннерах GitHub его нет вообще. Заодно тесты вшивания субтитров
+      # выполняются здесь по-настоящему — на macOS они пропускаются,
+      # потому что там ffmpeg обычно без libass.
       - name: Скачать ffmpeg с libass
         shell: pwsh
         run: |
@@ -42,8 +40,6 @@ jobs:
           Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_unpacked
           $bin = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter ffmpeg.exe | Select-Object -First 1
           if (-not $bin) { throw "ffmpeg.exe не найден в архиве" }
-          # Проверяем, что это действительно сборка с libass: без неё
-          # вшивание субтитров работать не будет.
           $filters = & $bin.FullName -hide_banner -filters
           if (-not ($filters -match '\bsubtitles\b')) {
             throw "В скачанной сборке ffmpeg нет фильтра subtitles (нет libass)"
@@ -54,6 +50,17 @@ jobs:
           if ($probe) { Copy-Item $probe.FullName dist/tools/ffmpeg/ }
           $license = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter LICENSE* | Select-Object -First 1
           if ($license) { Copy-Item $license.FullName dist/tools/ffmpeg/ }
+          # Тесты и приложение читают эти переменные.
+          "SUBTITLER_FFMPEG=$(Resolve-Path dist/tools/ffmpeg/ffmpeg.exe)" >> $env:GITHUB_ENV
+          "SUBTITLER_FFPROBE=$(Resolve-Path dist/tools/ffmpeg/ffprobe.exe)" >> $env:GITHUB_ENV
+
+      - name: Анализ и тесты
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Сборка
+        run: flutter build windows --release
 
       - name: Собрать переносимую папку
         shell: pwsh
@@ -64,8 +71,13 @@ jobs:
           # Библиотеки времени выполнения MSVC кладём рядом с exe:
           # на служебных ПК без прав администратора нет ни установщика
           # Visual C++, ни возможности его поставить.
-          $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory |
+          $vsRoot = "C:\Program Files\Microsoft Visual Studio\2022"
+          $redist = Get-ChildItem $vsRoot -Directory |
+                    ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC" } |
+                    Where-Object { Test-Path $_ } |
+                    Get-ChildItem -Directory |
                     Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $redist) { throw "Не найдены библиотеки MSVC для распространения" }
           $crt = Join-Path $redist.FullName "x64\Microsoft.VC143.CRT"
           foreach ($dll in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
             Copy-Item (Join-Path $crt $dll) dist/
@@ -85,16 +97,16 @@ jobs:
         with:
           name: subtitler-windows-x64
           path: subtitler-windows-x64.zip
-          # На бесплатном тарифе всего 500 МБ под артефакты, а по умолчанию
-          # они лежат 90 дней. Сборки крупные — держим их две недели.
+          # На бесплатном тарифе всего 500 МБ под артефакты на весь аккаунт,
+          # а по умолчанию они лежат 90 дней. Сборки крупные.
           retention-days: 14
 
   android:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -103,6 +115,15 @@ jobs:
         with:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
+
+      # На раннере ffmpeg не установлен, а часть тестов его запускает.
+      - name: Поставить ffmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          if ! ffmpeg -hide_banner -filters | grep -qw subtitles; then
+            echo "В ffmpeg этой системы нет фильтра subtitles — тесты вшивания будут пропущены"
+          fi
 
       - name: Зависимости
         run: flutter pub get
