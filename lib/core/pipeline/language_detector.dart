@@ -1,14 +1,7 @@
 import 'dart:math' as math;
 
+import '../languages.dart';
 import 'validation.dart';
-
-/// Буквы и сочетания, которые есть в турецком и невозможны в узбекской
-/// латинице.
-const Set<String> kTurkishMarkers = {'ç', 'ğ', 'ı', 'ş', 'ö', 'ü'};
-
-/// И наоборот: узбекская латиница пишет то, чего нет в турецком алфавите —
-/// буквы q и x, апостроф в oʻ/gʻ и диграфы sh/ch вместо ş/ç.
-const Set<String> kUzbekMarkers = {'q', 'x', 'ʻ', 'sh', 'ch'};
 
 /// Насколько один вариант должен обойти другой, чтобы предлагать его выбор.
 /// Ниже этого — данных не хватает, и решать должен человек.
@@ -29,20 +22,19 @@ class LanguageVerdict {
   /// Отсортированы по убыванию правдоподобия.
   final List<LanguageCandidate> candidates;
 
-  /// Хватает ли данных, чтобы предлагать выбор. Если нет — оба варианта
+  /// Хватает ли данных, чтобы предлагать выбор. Если нет — варианты
   /// показываются равноправно, и язык выбирает человек.
   final bool confident;
 
   const LanguageVerdict({required this.candidates, required this.confident});
 
   LanguageCandidate get best => candidates.first;
-  double get gap => candidates.length < 2
-      ? 0
-      : candidates[0].score - candidates[1].score;
+  double get gap =>
+      candidates.length < 2 ? 0 : candidates[0].score - candidates[1].score;
 }
 
 double _markerRate(String lowered, Set<String> markers) {
-  if (lowered.isEmpty) return 0;
+  if (lowered.isEmpty || markers.isEmpty) return 0;
   var hits = 0;
   for (final marker in markers) {
     var from = 0;
@@ -61,14 +53,26 @@ double _markerRate(String lowered, Set<String> markers) {
 /// Смысл: правильная модель выдаёт связный текст со «своими» буквами,
 /// а неправильная — фонетическую кальку без них и часто зацикливается,
 /// повторяя одно слово (реальный случай — «***» восемь раз подряд).
-double scoreLanguage(String text, String lang) {
+///
+/// [against] — остальные проверяемые языки: их отличительные буквы
+/// работают против варианта.
+double scoreLanguage(
+  String text,
+  String lang, {
+  Iterable<String> against = const [],
+}) {
   final trimmed = text.trim();
   if (trimmed.isEmpty) return -1;
 
-  final lowered = trimmed.toLowerCase();
-  final own = lang == 'tr-TR' ? kTurkishMarkers : kUzbekMarkers;
-  final alien = lang == 'tr-TR' ? kUzbekMarkers : kTurkishMarkers;
+  final own = languageByCode(lang)?.markers ?? const <String>{};
+  final alien = <String>{};
+  for (final other in against) {
+    if (other == lang) continue;
+    alien.addAll(languageByCode(other)?.markers ?? const <String>{});
+  }
+  alien.removeAll(own);
 
+  final lowered = trimmed.toLowerCase();
   final words = trimmed.split(RegExp(r'\s+')).where((w) => w.isNotEmpty).length;
 
   var score = 8.0 * _markerRate(lowered, own) -
@@ -80,18 +84,23 @@ double scoreLanguage(String text, String lang) {
 
 /// Сравнивает распознавание одного и того же звука разными моделями.
 LanguageVerdict judgeLanguage(Map<String, String> textByLang) {
+  final codes = textByLang.keys.toList();
   final candidates = textByLang.entries
       .map((e) => LanguageCandidate(
             lang: e.key,
             text: e.value,
-            score: scoreLanguage(e.value, e.key),
+            score: scoreLanguage(e.value, e.key, against: codes),
           ))
       .toList()
     ..sort((a, b) => b.score.compareTo(a.score));
 
-  final verdict = LanguageVerdict(candidates: candidates, confident: false);
+  final gap = candidates.length < 2
+      ? 0.0
+      : candidates[0].score - candidates[1].score;
+
   return LanguageVerdict(
     candidates: candidates,
-    confident: candidates.length >= 2 && verdict.gap >= kLanguageConfidenceGap,
+    // Один кандидат — это не выбор, а данность: подтверждать нечего.
+    confident: candidates.length >= 2 && gap >= kLanguageConfidenceGap,
   );
 }

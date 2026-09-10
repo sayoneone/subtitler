@@ -2,24 +2,23 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../languages.dart';
 import 'api_errors.dart';
 
 /// Лимит одного запроса: считается по сумме длин всех строк батча.
 const int kTranslateBatchCharLimit = 10000;
 
-/// Узбекский в переводчике представлен двумя языками: `uz` — латиница,
-/// `uzbcyr` — кириллица. Распознавание отдаёт узбекский латиницей,
-/// поэтому здесь `uz`. Если текст реплики отредактируют кириллицей,
-/// для неё понадобится `uzbcyr` — это задача редактора, не этого клиента.
-const Map<String, String> _sttToTranslate = {'tr-TR': 'tr', 'uz-UZ': 'uz'};
-
-/// Translate v2 принимает короткие коды языков, а не полные локали.
+/// Translate v2 принимает свои коды языков, а не коды распознавания.
+/// Соответствие лежит в таблице языков: у узбекского это 'uz' (латиница —
+/// кириллический узбекский там отдельный язык 'uzbcyr'), у бразильского
+/// португальского — базовый 'pt'.
 String toTranslateCode(String sttLang) {
-  final code = _sttToTranslate[sttLang];
-  if (code == null) {
-    throw ArgumentError.value(sttLang, 'sttLang', 'Неизвестный язык распознавания');
+  final language = languageByCode(sttLang);
+  if (language == null) {
+    throw ArgumentError.value(
+        sttLang, 'sttLang', 'Неизвестный язык распознавания');
   }
-  return code;
+  return language.translateCode;
 }
 
 List<List<String>> splitIntoBatches(List<String> texts) {

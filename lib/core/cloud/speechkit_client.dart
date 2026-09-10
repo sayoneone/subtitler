@@ -2,11 +2,12 @@ import 'dart:convert';
 
 import 'package:dio/dio.dart';
 
+import '../languages.dart';
 import 'api_errors.dart';
 
-/// Языки, которые приложение отправляет в распознавание. Язык всегда задаётся
-/// явно: автоопределение для узбекского даёт молчаливые ошибки.
-const List<String> kSupportedSttLangs = ['tr-TR', 'uz-UZ'];
+/// Языки, которые приложение отправляет в распознавание.
+/// Язык всегда задаётся явно: значения `auto` в API v1 нет.
+List<String> get kSupportedSttLangs => kLanguageCodes;
 
 class SpeechKitClient {
   final Dio dio;
@@ -24,8 +25,9 @@ class SpeechKitClient {
     required List<int> oggBytes,
     required String lang,
   }) async {
-    if (!kSupportedSttLangs.contains(lang)) {
-      throw ArgumentError.value(lang, 'lang', 'Поддерживаются $kSupportedSttLangs');
+    if (languageByCode(lang) == null) {
+      throw ArgumentError.value(
+          lang, 'lang', 'Неизвестный язык распознавания');
     }
 
     try {

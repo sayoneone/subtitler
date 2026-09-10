@@ -4,7 +4,6 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 
 import '../core/cloud/api_errors.dart';
@@ -12,6 +11,7 @@ import '../core/cloud/speechkit_client.dart';
 import '../core/cloud/translate_client.dart';
 import '../core/ffmpeg/ffmpeg_locator.dart';
 import '../core/ffmpeg/process_runner.dart';
+import '../core/languages.dart';
 import '../core/logging.dart';
 import '../core/models.dart';
 import '../core/pipeline/burner.dart';
@@ -19,6 +19,7 @@ import '../core/pipeline/language_detector.dart';
 import '../core/pipeline/pipeline.dart';
 import '../core/session_store.dart';
 import '../core/srt.dart';
+import 'key_store.dart';
 import 'runtime.dart';
 
 enum CheckState { unknown, checking, ok, failed }
@@ -26,22 +27,16 @@ enum CheckState { unknown, checking, ok, failed }
 /// Состояние отладочного стенда. Одна модель на весь экран — этого хватает,
 /// а лишние слои только мешают отлаживать.
 class DebugController extends ChangeNotifier {
-  static const _keyStorageName = 'yc_api_key';
 
   final DebugLog log = DebugLog.instance;
 
-  /// `usesDataProtectionKeychain: false` — принципиальный момент для macOS.
-  /// По умолчанию пакет просится в «защищённую» Связку ключей, а она требует
-  /// entitlement и подписи с Team ID; у приложения без песочницы это даёт
-  /// ошибку −34018 «A required entitlement isn't present». Обычная Связка
-  /// работает без всего этого. На Windows и Android опция не действует —
-  /// там свои хранилища (Credential Manager и Keystore).
-  final _storage = const FlutterSecureStorage(
-    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
-  );
+  KeyStore? _keyStore;
 
   /// Удалось ли вообще пользоваться хранилищем ключа.
   bool? storageWorks;
+
+  /// Где именно лежит ключ — показываем пользователю.
+  String storageDescription = '';
 
   AppRuntime? runtime;
   FfmpegInfo? ffmpeg;
@@ -71,6 +66,20 @@ class DebugController extends ChangeNotifier {
   /// Человек раскрыл ручной выбор языка (в обычном ходе он не нужен).
   bool manualLanguage = false;
 
+  /// Языки, среди которых идёт автоопределение. Каждый добавленный язык —
+  /// это лишние платные запросы и меньше шансов на уверенный ответ,
+  /// поэтому набор короткий и настраиваемый.
+  final Set<String> detectionCandidates = {...kDefaultDetectionCandidates};
+
+  void toggleCandidate(String code) {
+    if (detectionCandidates.contains(code)) {
+      if (detectionCandidates.length > 1) detectionCandidates.remove(code);
+    } else {
+      detectionCandidates.add(code);
+    }
+    notifyListeners();
+  }
+
   bool busy = false;
   bool _cancelRequested = false;
   String? lastError;
@@ -92,6 +101,11 @@ class DebugController extends ChangeNotifier {
       log.error('Не удалось подготовить папки приложения: $e');
     }
     await detectFfmpeg();
+    _keyStore = createKeyStore(
+      supportDir: runtime?.supportDir ?? Directory.systemTemp.path,
+      log: log,
+    );
+    storageDescription = _keyStore!.description;
     await _checkStorage();
     final stored = await _readKey();
     if (stored != null && stored.isNotEmpty) {
@@ -105,30 +119,18 @@ class DebugController extends ChangeNotifier {
   }
 
   /// Проверяет хранилище на старте: записывает и читает пробное значение.
-  /// Лучше узнать о неработающей Связке сразу, чем после ввода ключа.
+  /// Лучше узнать о неработающем хранилище сразу, чем после ввода ключа.
   Future<void> _checkStorage() async {
-    try {
-      await _storage
-          .write(key: 'storage_probe', value: 'ok')
-          .timeout(const Duration(seconds: 10));
-      final back = await _storage.read(key: 'storage_probe');
-      await _storage.delete(key: 'storage_probe');
-      storageWorks = back == 'ok';
-      log.info(storageWorks!
-          ? 'Хранилище ключа работает'
-          : 'Хранилище ключа отвечает, но значение не сохраняется');
-    } catch (e) {
-      storageWorks = false;
-      log.warn('Хранилище ключа недоступно: $e. Ключ придётся вводить '
-          'при каждом запуске.');
-    }
+    storageWorks = await _keyStore!.selfTest();
+    log.info(storageWorks!
+        ? 'Хранилище ключа работает: $storageDescription'
+        : 'Хранилище ключа недоступно ($storageDescription). '
+            'Ключ придётся вводить при каждом запуске.');
   }
 
   Future<String?> _readKey() async {
     try {
-      return await _storage
-          .read(key: _keyStorageName)
-          .timeout(const Duration(seconds: 10));
+      return await _keyStore!.read();
     } catch (e) {
       log.warn('Не удалось прочитать сохранённый ключ: $e');
       return null;
@@ -296,10 +298,8 @@ class DebugController extends ChangeNotifier {
 
     if (sttCheck == CheckState.ok && translateCheck == CheckState.ok) {
       try {
-        await _storage
-            .write(key: _keyStorageName, value: apiKey)
-            .timeout(const Duration(seconds: 20));
-        log.info('Ключ сохранён в хранилище системы');
+        await _keyStore!.write(apiKey);
+        log.info('Ключ сохранён: $storageDescription');
       } catch (e) {
         log.warn('Ключ проверен, но сохранить его не удалось: $e. '
             'В этом запуске он работает, при следующем — введите заново.');
@@ -412,6 +412,7 @@ class DebugController extends ChangeNotifier {
         log: log,
       ).detectLanguage(
         videoPath: video,
+        candidates: detectionCandidates.toList(),
         onProgress: (p) {
           progress = p;
           notifyListeners();

@@ -7,6 +7,7 @@ import '../cloud/translate_client.dart';
 import '../ffmpeg/commands.dart';
 import '../ffmpeg/ffmpeg_runner.dart';
 import '../logging.dart';
+import '../languages.dart';
 import '../models.dart';
 import '../session_store.dart';
 import 'language_detector.dart';
@@ -143,6 +144,7 @@ class Pipeline {
   /// Зато распознанное здесь не пропадает — оно уходит в сессию.
   Future<LanguageProbe> detectLanguage({
     required String videoPath,
+    List<String> candidates = kDefaultDetectionCandidates,
     int probeSegments = 2,
     void Function(PipelineProgress)? onProgress,
     Future<void> Function(Duration)? sleep,
@@ -156,9 +158,13 @@ class Pipeline {
       durationSec: duration,
     );
 
+    if (candidates.isEmpty) {
+      throw ArgumentError('Не выбрано ни одного языка для определения');
+    }
+
     final base = await _prepare(
       videoPath: videoPath,
-      lang: kSupportedSttLangs.first,
+      lang: candidates.first,
       duration: duration,
       fingerprint: fingerprint,
       report: report,
@@ -170,17 +176,18 @@ class Pipeline {
       ..sort((a, b) => b.range.duration.compareTo(a.range.duration));
     final probes = byLength.take(probeSegments).toList();
     log.info('Определение языка по ${probes.length} репликам '
-        '(${probes.map((c) => c.index).join(', ')})');
+        '(${probes.map((c) => c.index).join(', ')}); '
+        'кандидаты: ${candidates.map(languageName).join(', ')}');
 
     final textByLang = <String, String>{};
     final recognized = <String, Map<int, String>>{};
     var done = 0;
 
-    for (final lang in kSupportedSttLangs) {
+    for (final lang in candidates) {
       final parts = <String>[];
       for (final cue in probes) {
         report(PipelineProgress(PipelineStage.recognizing,
-            done: done, total: probes.length * kSupportedSttLangs.length));
+            done: done, total: probes.length * candidates.length));
         final bytes = File(_segmentPath(cue.index)).readAsBytesSync();
         try {
           final text = await withRetry(

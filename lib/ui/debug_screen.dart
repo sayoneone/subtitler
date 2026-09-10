@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app/debug_controller.dart';
+import '../core/languages.dart';
 import '../core/logging.dart';
 import '../core/models.dart';
 import '../core/pipeline/language_detector.dart';
@@ -297,20 +298,53 @@ class _DebugScreenState extends State<DebugScreen> {
           ),
         ),
       ),
-      if (c.manualLanguage)
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'tr-TR', label: Text('турецкий')),
-            ButtonSegment(value: 'uz-UZ', label: Text('узбекский')),
+      if (c.manualLanguage) ...[
+        Row(children: [
+          const Text('Язык записи: ', style: TextStyle(fontSize: 12)),
+          DropdownButton<String>(
+            value: c.lang,
+            isDense: true,
+            onChanged: c.busy ? null : (v) => c.setLang(v!),
+            items: [
+              for (final language in kLanguages)
+                DropdownMenuItem(
+                  value: language.sttCode,
+                  child: Text('${language.name}  (${language.sttCode})',
+                      style: const TextStyle(fontSize: 12)),
+                ),
+            ],
+          ),
+        ]),
+        const SizedBox(height: 6),
+        const Text('Среди каких языков определять автоматически:',
+            style: TextStyle(fontSize: 12, color: Colors.grey)),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 6,
+          runSpacing: 2,
+          children: [
+            for (final language in kLanguages)
+              FilterChip(
+                label: Text(language.name,
+                    style: const TextStyle(fontSize: 11)),
+                selected: c.detectionCandidates.contains(language.sttCode),
+                onSelected:
+                    c.busy ? null : (_) => c.toggleCandidate(language.sttCode),
+                visualDensity: VisualDensity.compact,
+              ),
           ],
-          selected: {c.lang},
-          onSelectionChanged: c.busy ? null : (s) => c.setLang(s.first),
         ),
+        Text(
+          'Выбрано ${c.detectionCandidates.length}. Каждый язык — это ещё две '
+          'платные пробы перед обработкой, и чем больше похожих языков, '
+          'тем чаще приложение будет переспрашивать.',
+          style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+        ),
+      ],
     ]);
   }
 
-  static String _langName(String lang) =>
-      lang == 'tr-TR' ? 'турецкий' : 'узбекский';
+  static String _langName(String lang) => languageName(lang);
 
   /// Показывает, что услышала каждая модель.
   ///

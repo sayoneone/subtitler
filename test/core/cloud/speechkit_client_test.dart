@@ -15,6 +15,10 @@ void main() {
 
   setUp(() async {
     received = [];
+    // Сбрасываем ответ сервера: иначе тест, выставивший 500, ломал бы
+    // все следующие, и результат зависел бы от порядка запуска.
+    nextStatus = () => 200;
+    nextBody = () => '{"result":"tam 12 saat var"}';
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     baseUrl = 'http://127.0.0.1:${server.port}';
     server.listen((request) async {
@@ -87,10 +91,18 @@ void main() {
 
   test('Неизвестный язык отклоняется до похода в сеть', () async {
     await expectLater(
-      client().recognize(oggBytes: utf8.encode('o'), lang: 'ru-RU'),
+      client().recognize(oggBytes: utf8.encode('o'), lang: 'xx-XX'),
       throwsA(isA<ArgumentError>()),
     );
     expect(received, isEmpty);
+  });
+
+  test('Поддерживаются все языки таблицы, не только турецкий с узбекским',
+      () async {
+    expect(kSupportedSttLangs, containsAll(['ru-RU', 'kk-KZ', 'de-DE']));
+    expect(kSupportedSttLangs.length, 16);
+    await client().recognize(oggBytes: utf8.encode('ogg'), lang: 'ru-RU');
+    expect(received.last.uri.queryParameters['lang'], 'ru-RU');
   });
 
   test('Сообщение об ошибке не содержит ключ', () async {
