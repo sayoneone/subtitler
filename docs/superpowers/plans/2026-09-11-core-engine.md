@@ -33,7 +33,7 @@ Yandex SpeechKit STT v1 и Translate v2 поверх `dio`.
 - Аудио сегмента: OggOpus, 64 kbit/s, моно (`-c:a libopus -b:a 64k`, `-ac 1`).
 - STT: `POST https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?topic=general&format=oggopus&lang=<код>`; заголовок `Authorization: Api-Key <ключ>`; `folderId` НЕ передаётся; `sampleRateHertz` не передаётся; коды языка полные — `tr-TR`, `uz-UZ`.
 - Translate: `POST https://translate.api.cloud.yandex.net/translate/v2/translate`; `folderId` НЕ передаётся; коды короткие — `targetLanguageCode: "ru"`, `sourceLanguageCode: "tr"` / `"uz"` (`uz` — латиница; кириллический узбекский в переводчике имеет отдельный код `uzbcyr`); лимит 10 000 знаков считается по сумме всех строк батча; квота 20 запросов в секунду.
-- Политика ошибок (одна для обоих клиентов): 429/5xx/сетевые — 3 попытки с паузами 1 с, 4 с, 10 с; после исчерпания реплика получает статус `failed`, обработка остальных продолжается. 401/403 — немедленная остановка всего прогона.
+- Политика ошибок (одна для обоих клиентов): 429/5xx/сетевые — попытка и до трёх повторов с паузами 1 с, 4 с и 10 с (не больше четырёх обращений на реплику); после исчерпания реплика получает статус `failed`, обработка остальных продолжается. 401/403 — немедленная остановка всего прогона.
 - Параллельных запросов к STT — не более 4 (квота API 20 rps).
 - Вшивание: `-vf "subtitles=<srt>:fontsdir=<dir>:force_style='FontName=Noto Sans,Outline=2'" -c:v libx264 -crf 18 -preset veryfast -c:a copy`.
 - Автопроверка видимости субтитров: в нижних 20 % высоты кадра число пикселей с яркостью > 200 должно вырасти минимум на 300 по сравнению с исходным кадром.
@@ -864,13 +864,19 @@ List<TimeRange> _pad(List<TimeRange> ranges, double duration) {
   final result = <TimeRange>[];
   for (var i = 0; i < ranges.length; i++) {
     final range = ranges[i];
-    final prevEnd = result.isEmpty ? 0.0 : result.last.end;
+    // Зазор для расчёта паддинга берём между ИСХОДНЫМИ границами соседей.
+    // Если считать его от уже расширенного конца предыдущего сегмента,
+    // тот же зазор урезается дважды и паддинг выходит несимметричным.
+    final prevOriginalEnd = i == 0 ? 0.0 : ranges[i - 1].end;
+    // А вот ограничителем служит именно расширенный конец: он гарантирует,
+    // что сегменты не перекроются.
+    final prevPaddedEnd = result.isEmpty ? 0.0 : result.last.end;
     final nextStart = i + 1 < ranges.length ? ranges[i + 1].start : duration;
 
-    final padBefore = _min(kPad, _max(0.0, (range.start - prevEnd) / 2));
+    final padBefore = _min(kPad, _max(0.0, (range.start - prevOriginalEnd) / 2));
     final padAfter = _min(kPad, _max(0.0, (nextStart - range.end) / 2));
 
-    final start = _round2(_max(prevEnd, _max(0.0, range.start - padBefore)));
+    final start = _round2(_max(prevPaddedEnd, _max(0.0, range.start - padBefore)));
     final end = _round2(_min(duration, range.end + padAfter));
     if (end > start) result.add(TimeRange(start, end));
   }
