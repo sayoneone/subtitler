@@ -258,47 +258,57 @@ class _DebugScreenState extends State<DebugScreen> {
                 },
           child: const Text('Выбрать файл'),
         ),
-        const SizedBox(width: 16),
-        const Text('Язык:'),
-        const SizedBox(width: 8),
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'tr-TR', label: Text('турецкий')),
-            ButtonSegment(value: 'uz-UZ', label: Text('узбекский')),
-          ],
-          selected: {c.lang},
-          onSelectionChanged:
-              c.busy ? null : (s) => c.setLang(s.first),
-        ),
-        const SizedBox(width: 8),
-        OutlinedButton.icon(
-          onPressed: c.canRun ? c.detectLanguage : null,
-          icon: const Icon(Icons.travel_explore, size: 18),
-          label: const Text('Определить'),
-        ),
-      ]),
-      if (c.languageVerdict != null) _verdictBlock(c.languageVerdict!),
-      const SizedBox(height: 12),
-      Row(children: [
+        const SizedBox(width: 12),
         FilledButton.icon(
-          onPressed: c.canRun ? c.run : null,
+          onPressed: c.canRun ? c.processVideo : null,
           icon: const Icon(Icons.play_arrow),
-          label: const Text('Обработать'),
+          label: Text(c.languageConfirmed
+              ? 'Обработать (${_langName(c.lang)})'
+              : 'Обработать'),
         ),
         const SizedBox(width: 8),
         OutlinedButton(
           onPressed: c.busy ? c.cancel : null,
           child: const Text('Отмена'),
         ),
-        const SizedBox(width: 16),
-        if (c.progress != null) Expanded(child: Text(_progressText(c.progress!))),
+        const SizedBox(width: 12),
+        if (c.progress != null)
+          Expanded(child: Text(_progressText(c.progress!))),
       ]),
+      if (c.languageVerdict != null)
+        _verdictBlock(c.languageVerdict!, asking: c.awaitingLanguageChoice),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton(
+          onPressed: c.busy ? null : c.toggleManualLanguage,
+          child: Text(
+            c.manualLanguage
+                ? 'Скрыть ручной выбор языка'
+                : 'Выбрать язык вручную',
+            style: const TextStyle(fontSize: 12),
+          ),
+        ),
+      ),
+      if (c.manualLanguage)
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'tr-TR', label: Text('турецкий')),
+            ButtonSegment(value: 'uz-UZ', label: Text('узбекский')),
+          ],
+          selected: {c.lang},
+          onSelectionChanged: c.busy ? null : (s) => c.setLang(s.first),
+        ),
     ]);
   }
 
-  /// Показывает, что услышала каждая модель. Даже когда приложение уверено,
-  /// оба варианта остаются на виду: язык подтверждает человек.
-  Widget _verdictBlock(LanguageVerdict verdict) {
+  static String _langName(String lang) =>
+      lang == 'tr-TR' ? 'турецкий' : 'узбекский';
+
+  /// Показывает, что услышала каждая модель.
+  ///
+  /// [asking] — определение не дало уверенного ответа, и обработка ждёт
+  /// выбора человека: показываем оба текста и две кнопки.
+  Widget _verdictBlock(LanguageVerdict verdict, {required bool asking}) {
     String title(String lang) =>
         lang == 'tr-TR' ? 'Турецкая модель' : 'Узбекская модель';
 
@@ -306,20 +316,26 @@ class _DebugScreenState extends State<DebugScreen> {
       margin: const EdgeInsets.only(top: 10),
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: Colors.indigo.withValues(alpha: 0.05),
+        color: asking
+            ? Colors.orange.withValues(alpha: 0.10)
+            : Colors.indigo.withValues(alpha: 0.05),
         borderRadius: BorderRadius.circular(8),
+        border: asking
+            ? Border.all(color: Colors.orange.shade300)
+            : null,
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text(
-          verdict.confident
-              ? 'Похоже на ${title(verdict.best.lang).toLowerCase()} — '
-                  'выбран этот язык. Проверьте по тексту ниже.'
-              : 'Уверенно определить не вышло: обе модели дали похожий по '
-                  'качеству текст. Выберите язык сами.',
+          asking
+              ? 'Не удалось определить язык: обе модели услышали примерно '
+                  'одинаково. Посмотрите, какой текст осмысленнее, '
+                  'и выберите язык — обработка продолжится.'
+              : 'Определён ${title(verdict.best.lang).toLowerCase()}. '
+                  'Проверьте по тексту ниже.',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w500,
-            color: verdict.confident ? Colors.indigo : Colors.orange.shade900,
+            color: asking ? Colors.orange.shade900 : Colors.indigo,
           ),
         ),
         const SizedBox(height: 8),
@@ -347,6 +363,15 @@ class _DebugScreenState extends State<DebugScreen> {
                   style: const TextStyle(fontSize: 12),
                 ),
               ),
+              if (asking) ...[
+                const SizedBox(width: 8),
+                FilledButton.tonal(
+                  onPressed: c.busy
+                      ? null
+                      : () => c.chooseLanguage(candidate.lang),
+                  child: Text('Это ${_langName(candidate.lang)}'),
+                ),
+              ],
             ]),
           ),
       ]),

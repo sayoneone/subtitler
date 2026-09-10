@@ -50,6 +50,15 @@ class DebugController extends ChangeNotifier {
   LanguageVerdict? languageVerdict;
   Timer? _saveDebounce;
 
+  /// Язык подтверждён — определился сам или его выбрал человек.
+  bool languageConfirmed = false;
+
+  /// Определение не дало уверенного ответа: ждём выбора человека.
+  bool awaitingLanguageChoice = false;
+
+  /// Человек раскрыл ручной выбор языка (в обычном ходе он не нужен).
+  bool manualLanguage = false;
+
   bool busy = false;
   bool _cancelRequested = false;
   String? lastError;
@@ -116,6 +125,10 @@ class DebugController extends ChangeNotifier {
     burnedPath = null;
     progress = null;
     lastError = null;
+    // Новое видео — язык определяем заново.
+    languageConfirmed = false;
+    awaitingLanguageChoice = false;
+    languageVerdict = null;
     notifyListeners();
 
     log.info('Выбрано видео: $path');
@@ -134,8 +147,46 @@ class DebugController extends ChangeNotifier {
 
   void setLang(String value) {
     lang = value;
+    languageConfirmed = true;
+    awaitingLanguageChoice = false;
     log.info('Язык распознавания: $value');
     notifyListeners();
+  }
+
+  void toggleManualLanguage() {
+    manualLanguage = !manualLanguage;
+    notifyListeners();
+  }
+
+  /// Единственная кнопка для обычного хода: сначала определяем язык,
+  /// и только если это не удалось — спрашиваем человека.
+  Future<void> processVideo() async {
+    if (!canRun) return;
+
+    if (!languageConfirmed) {
+      await detectLanguage();
+      if (lastError != null) return;
+
+      final verdict = languageVerdict;
+      if (verdict == null || !verdict.confident) {
+        awaitingLanguageChoice = true;
+        log.info('Ждём, что язык выберет человек');
+        notifyListeners();
+        return;
+      }
+      languageConfirmed = true;
+    }
+    await run();
+  }
+
+  /// Человек выбрал язык на развилке — продолжаем обработку.
+  Future<void> chooseLanguage(String value) async {
+    lang = value;
+    languageConfirmed = true;
+    awaitingLanguageChoice = false;
+    log.info('Язык выбран человеком: $value');
+    notifyListeners();
+    await run();
   }
 
   Future<void> saveKey(String value) async {
@@ -324,7 +375,10 @@ class DebugController extends ChangeNotifier {
       );
       languageVerdict = probe.verdict;
       session = probe.session;
-      if (probe.verdict.confident) lang = probe.verdict.best.lang;
+      if (probe.verdict.confident) {
+        lang = probe.verdict.best.lang;
+        languageConfirmed = true;
+      }
     } catch (e) {
       lastError = '$e';
       log.error('Определение языка не удалось: $e');
