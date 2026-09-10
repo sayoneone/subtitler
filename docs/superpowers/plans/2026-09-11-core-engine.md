@@ -32,7 +32,7 @@ Yandex SpeechKit STT v1 и Translate v2 поверх `dio`.
 - Цепочка порогов тишины: −30 dB/0.3 с → −25/0.3 → −20/0.25 → −18/0.25 → −15/0.25; критерий остановки — ≥ 1 паузы на 15 с длительности; если не помогло ни одно значение — принудительная нарезка по 7.2 с и флаг `forcedSplit`.
 - Аудио сегмента: OggOpus, 64 kbit/s, моно (`-c:a libopus -b:a 64k`, `-ac 1`).
 - STT: `POST https://stt.api.cloud.yandex.net/speech/v1/stt:recognize?topic=general&format=oggopus&lang=<код>`; заголовок `Authorization: Api-Key <ключ>`; `folderId` НЕ передаётся; `sampleRateHertz` не передаётся; коды языка полные — `tr-TR`, `uz-UZ`.
-- Translate: `POST https://translate.api.cloud.yandex.net/translate/v2/translate`; `folderId` НЕ передаётся; коды короткие — `targetLanguageCode: "ru"`, `sourceLanguageCode: "tr"` / `"uz"`; лимит 10 000 знаков считается по сумме всех строк батча.
+- Translate: `POST https://translate.api.cloud.yandex.net/translate/v2/translate`; `folderId` НЕ передаётся; коды короткие — `targetLanguageCode: "ru"`, `sourceLanguageCode: "tr"` / `"uz"` (`uz` — латиница; кириллический узбекский в переводчике имеет отдельный код `uzbcyr`); лимит 10 000 знаков считается по сумме всех строк батча; квота 20 запросов в секунду.
 - Политика ошибок (одна для обоих клиентов): 429/5xx/сетевые — 3 попытки с паузами 1 с, 4 с, 10 с; после исчерпания реплика получает статус `failed`, обработка остальных продолжается. 401/403 — немедленная остановка всего прогона.
 - Параллельных запросов к STT — не более 4 (квота API 20 rps).
 - Вшивание: `-vf "subtitles=<srt>:fontsdir=<dir>:force_style='FontName=Noto Sans,Outline=2'" -c:v libx264 -crf 18 -preset veryfast -c:a copy`.
@@ -2314,9 +2314,11 @@ import 'package:subtitler/core/cloud/api_errors.dart';
 import 'package:subtitler/core/cloud/translate_client.dart';
 
 void main() {
-  test('Полный код локали превращается в короткий ISO-код', () {
+  test('Полный код локали превращается в короткий код переводчика', () {
     expect(toTranslateCode('tr-TR'), 'tr');
-    expect(toTranslateCode('uz-UZ'), 'uz');
+    expect(toTranslateCode('uz-UZ'), 'uz',
+        reason: 'uz — латиница, именно её отдаёт распознавание; '
+            'кириллический узбекский в переводчике зовётся uzbcyr');
     expect(() => toTranslateCode('xx-XX'), throwsA(isA<ArgumentError>()));
   });
 
@@ -2437,9 +2439,13 @@ import 'api_errors.dart';
 /// Лимит одного запроса: считается по сумме длин всех строк батча.
 const int kTranslateBatchCharLimit = 10000;
 
+/// Узбекский в переводчике представлен двумя языками: `uz` — латиница,
+/// `uzbcyr` — кириллица. Распознавание отдаёт узбекский латиницей,
+/// поэтому здесь `uz`. Если текст реплики отредактируют кириллицей,
+/// для неё понадобится `uzbcyr` — это задача редактора, не этого клиента.
 const Map<String, String> _sttToTranslate = {'tr-TR': 'tr', 'uz-UZ': 'uz'};
 
-/// Translate v2 принимает короткие коды ISO 639-1, а не полные локали.
+/// Translate v2 принимает короткие коды языков, а не полные локали.
 String toTranslateCode(String sttLang) {
   final code = _sttToTranslate[sttLang];
   if (code == null) {
