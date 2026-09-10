@@ -42,6 +42,29 @@ void main() {
     expect(fallback.ffprobePath, 'ffprobe');
   });
 
+  test('Длительность читается из вывода ffmpeg, без ffprobe', () {
+    const output = '''
+Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
+  Duration: 00:01:34.80, start: 0.000000, bitrate: 1200 kb/s
+''';
+    expect(ProcessFfmpegRunner.parseDuration(output), closeTo(94.80, 1e-9));
+    expect(ProcessFfmpegRunner.parseDuration('нет тут длительности'), isNull);
+  });
+
+  test('Длительность берётся и когда ffprobe отсутствует', () async {
+    final wav = '${tmp.path}/probe_fallback.wav';
+    await runner.run([
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=2',
+      wav,
+    ]);
+    final noProbe = ProcessFfmpegRunner(
+      ffmpegPath: runner.ffmpegPath,
+      ffprobePath: '/несуществующий/ffprobe',
+    );
+    expect(await noProbe.probeDuration(wav), closeTo(2.0, 0.1));
+  });
+
   test('FfmpegResult.ok привязан к нулевому коду', () {
     expect(const FfmpegResult(exitCode: 0, log: '').ok, isTrue);
     expect(const FfmpegResult(exitCode: 1, log: '').ok, isFalse);

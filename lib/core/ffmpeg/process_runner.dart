@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' as math;
 
 import '../logging.dart';
 import 'ffmpeg_runner.dart';
@@ -91,18 +92,50 @@ class ProcessFfmpegRunner implements FfmpegRunner {
     return FfmpegResult(exitCode: exitCode, log: errorOutput.toString());
   }
 
+  /// `Duration: 00:00:34.80, start: ...` — так ffmpeg сообщает длительность.
+  static final _durationLine =
+      RegExp(r'Duration:\s*(\d+):(\d+):(\d+)\.(\d+)');
+
+  /// Достаёт длительность из вывода `ffmpeg -i`.
+  ///
+  /// Отдельный ffprobe для этого не нужен, а в переносимой сборке под
+  /// Windows он стоил бы лишних 98 МБ: там каждый бинарник статический,
+  /// и один и тот же код лежал бы дважды.
+  static double? parseDuration(String ffmpegOutput) {
+    final m = _durationLine.firstMatch(ffmpegOutput);
+    if (m == null) return null;
+    final fraction = m.group(4)!;
+    return int.parse(m.group(1)!) * 3600 +
+        int.parse(m.group(2)!) * 60 +
+        int.parse(m.group(3)!) +
+        int.parse(fraction) / math.pow(10, fraction.length);
+  }
+
   @override
   Future<double> probeDuration(String path) async {
-    final result = await Process.run(ffprobePath, [
-      '-v', 'error',
-      '-show_entries', 'format=duration',
-      '-of', 'default=nw=1:nk=1',
-      path,
-    ]);
-    if (result.exitCode != 0) {
-      log.error('ffprobe ✘ не смог прочитать $path: ${result.stderr}');
-      throw StateError('ffprobe не смог прочитать $path: ${result.stderr}');
+    // ffprobe точнее, но он есть не везде: пробуем его, а если бинарника
+    // нет — читаем то же самое из вывода ffmpeg.
+    try {
+      final result = await Process.run(ffprobePath, [
+        '-v', 'error',
+        '-show_entries', 'format=duration',
+        '-of', 'default=nw=1:nk=1',
+        path,
+      ]);
+      if (result.exitCode == 0) {
+        final value = double.tryParse((result.stdout as String).trim());
+        if (value != null) return value;
+      }
+    } on ProcessException {
+      log.debug('ffprobe отсутствует, длительность берём из вывода ffmpeg');
     }
-    return double.parse((result.stdout as String).trim());
+
+    final probe = await Process.run(ffmpegPath, ['-hide_banner', '-i', path]);
+    final duration = parseDuration('${probe.stdout}${probe.stderr}');
+    if (duration == null) {
+      log.error('Не удалось определить длительность: $path');
+      throw StateError('Не удалось определить длительность: $path');
+    }
+    return duration;
   }
 }

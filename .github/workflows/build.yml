@@ -13,10 +13,10 @@ env:
   FLUTTER_VERSION: '3.44.6'
   # Сборка с libass: без неё фильтра subtitles не существует и вшивание
   # субтитров невозможно.
-  # Сборка с общими библиотеками: в статической ffmpeg.exe и ffprobe.exe
-  # весят по 98 МБ каждый, потому что всё вкомпилировано в каждый файл.
-  # Здесь два небольших exe и общий набор DLL — вдвое легче.
-  FFMPEG_URL: 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build-shared.zip'
+  # Статическая сборка: один самодостаточный ffmpeg.exe без DLL рядом.
+  # ffprobe не везём — длительность приложение читает у самого ffmpeg,
+  # а второй такой же статический бинарник стоил бы лишних 98 МБ.
+  FFMPEG_URL: 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip'
 
 jobs:
   windows:
@@ -47,17 +47,15 @@ jobs:
           if (-not ($filters -match '\bsubtitles\b')) {
             throw "В скачанной сборке ffmpeg нет фильтра subtitles (нет libass)"
           }
-          # Копируем всю папку bin: у сборки с общими библиотеками exe
-          # без соседних DLL не запустится.
           New-Item -ItemType Directory -Force -Path dist/tools/ffmpeg | Out-Null
-          Copy-Item "$($bin.DirectoryName)\*" dist/tools/ffmpeg/ -Recurse
+          Copy-Item $bin.FullName dist/tools/ffmpeg/
           $license = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter LICENSE* | Select-Object -First 1
           if ($license) { Copy-Item $license.FullName dist/tools/ffmpeg/ }
-          # ffplay в приложении не нужен, а весит заметно.
-          Remove-Item dist/tools/ffmpeg/ffplay.exe -ErrorAction SilentlyContinue
           # Тесты и приложение читают эти переменные.
           "SUBTITLER_FFMPEG=$(Resolve-Path dist/tools/ffmpeg/ffmpeg.exe)" >> $env:GITHUB_ENV
-          "SUBTITLER_FFPROBE=$(Resolve-Path dist/tools/ffmpeg/ffprobe.exe)" >> $env:GITHUB_ENV
+          # ffprobe в сборку не кладём: приложение обходится без него.
+          # Для тестов на этом раннере он тоже не нужен — длительность
+          # читается из вывода ffmpeg.
 
       - name: Анализ и тесты
         run: |
@@ -95,8 +93,7 @@ jobs:
           # на машине следователя.
           foreach ($needed in @('subtitler.exe','flutter_windows.dll','msvcp140.dll',
                                 'vcruntime140.dll','vcruntime140_1.dll',
-                                'tools/ffmpeg/ffmpeg.exe','tools/ffmpeg/ffprobe.exe',
-                                'fonts/NotoSans-Regular.ttf')) {
+                                'tools/ffmpeg/ffmpeg.exe','fonts/NotoSans-Regular.ttf')) {
             if (-not (Test-Path (Join-Path dist $needed))) { throw "В сборке нет $needed" }
           }
 
