@@ -10,6 +10,8 @@ import '../core/cloud/api_errors.dart';
 import '../core/cloud/speechkit_client.dart';
 import '../core/cloud/translate_client.dart';
 import '../core/ffmpeg/ffmpeg_locator.dart';
+import '../core/ffmpeg/ffmpeg_runner.dart';
+import '../core/ffmpeg/lib_runner.dart';
 import '../core/ffmpeg/process_runner.dart';
 import '../core/languages.dart';
 import '../core/logging.dart';
@@ -146,6 +148,21 @@ class DebugController extends ChangeNotifier {
       ));
 
   Future<void> detectFfmpeg() async {
+    if (isMobile) {
+      // Пакет ffmpeg_kit_flutter_new собран в варианте full-gpl: libass внутри.
+      ffmpeg = const FfmpegInfo(
+        ffmpegPath: 'встроенный в приложение',
+        ffprobePath: 'встроенный в приложение',
+        version: 'ffmpeg-kit full-gpl',
+        hasLibass: true,
+        source: 'bundled',
+      );
+      final fonts = runtime?.fontsDir;
+      if (fonts != null) await (_runner() as LibFfmpegRunner).registerFonts(fonts);
+      log.info('ffmpeg встроен в приложение, libass есть');
+      notifyListeners();
+      return;
+    }
     ffmpeg = await FfmpegLocator.locate(
       override: ffmpegOverride.isEmpty ? null : ffmpegOverride,
       log: log,
@@ -159,11 +176,20 @@ class DebugController extends ChangeNotifier {
     notifyListeners();
   }
 
-  ProcessFfmpegRunner _runner() => ProcessFfmpegRunner(
-        ffmpegPath: ffmpeg?.ffmpegPath ?? 'ffmpeg',
-        ffprobePath: ffmpeg?.ffprobePath ?? 'ffprobe',
-        log: log,
-      );
+  /// На Android ffmpeg вкомпилирован в приложение, на десктопе — отдельный
+  /// бинарник. Один и тот же интерфейс, разные реализации.
+  static bool get isMobile => Platform.isAndroid || Platform.isIOS;
+
+  LibFfmpegRunner? _libRunner;
+
+  FfmpegRunner _runner() {
+    if (isMobile) return _libRunner ??= LibFfmpegRunner(log: log);
+    return ProcessFfmpegRunner(
+      ffmpegPath: ffmpeg?.ffmpegPath ?? 'ffmpeg',
+      ffprobePath: ffmpeg?.ffprobePath ?? 'ffprobe',
+      log: log,
+    );
+  }
 
   Future<void> setVideo(String path) async {
     videoPath = path;
@@ -460,8 +486,10 @@ class DebugController extends ChangeNotifier {
   /// Ставит ffmpeg со всеми нужными кодеками через Homebrew.
   /// Ничего не скачиваем сами: пакет ставится обычным менеджером пакетов,
   /// а весь вывод виден в журнале.
+  bool get canInstallFfmpeg => Platform.isMacOS;
+
   Future<void> installFfmpeg() async {
-    if (busy) return;
+    if (busy || !canInstallFfmpeg) return;
     busy = true;
     lastError = null;
     notifyListeners();
@@ -561,9 +589,11 @@ class DebugController extends ChangeNotifier {
     }
   }
 
+  bool get canRevealOutput => Platform.isMacOS;
+
   Future<void> revealOutput() async {
     final target = burnedPath ?? videoPath;
-    if (target == null) return;
+    if (target == null || !canRevealOutput) return;
     await Process.run('open', ['-R', target]);
   }
 
@@ -572,7 +602,7 @@ class DebugController extends ChangeNotifier {
     final file = File(p.join(dir, 'subtitler-debug.log'));
     file.writeAsStringSync(log.asText());
     log.info('Журнал сохранён: ${file.path}');
-    await Process.run('open', ['-R', file.path]);
+    if (canRevealOutput) await Process.run('open', ['-R', file.path]);
     notifyListeners();
   }
 }

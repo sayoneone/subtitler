@@ -1,0 +1,130 @@
+name: Сборка
+
+# Собирать Windows-версию можно только на Windows: flutter build windows
+# требует MSVC. На машине разработчика (macOS) её не собрать, поэтому
+# сборка и упаковка живут здесь.
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+env:
+  FLUTTER_VERSION: '3.44.6'
+  # Сборка с libass: фильтр subtitles без неё не существует.
+  FFMPEG_URL: 'https://github.com/GyanD/codexffmpeg/releases/download/9.0.1/ffmpeg-9.0.1-essentials_build.zip'
+
+jobs:
+  windows:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Зависимости
+        run: flutter pub get
+
+      - name: Анализ и тесты
+        run: |
+          flutter analyze
+          flutter test
+
+      - name: Сборка
+        run: flutter build windows --release
+
+      - name: Скачать ffmpeg с libass
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri $env:FFMPEG_URL -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_unpacked
+          $bin = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter ffmpeg.exe | Select-Object -First 1
+          if (-not $bin) { throw "ffmpeg.exe не найден в архиве" }
+          # Проверяем, что это действительно сборка с libass: без неё
+          # вшивание субтитров работать не будет.
+          $filters = & $bin.FullName -hide_banner -filters
+          if (-not ($filters -match '\bsubtitles\b')) {
+            throw "В скачанной сборке ffmpeg нет фильтра subtitles (нет libass)"
+          }
+          New-Item -ItemType Directory -Force -Path dist/tools/ffmpeg | Out-Null
+          Copy-Item $bin.FullName dist/tools/ffmpeg/
+          $probe = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter ffprobe.exe | Select-Object -First 1
+          if ($probe) { Copy-Item $probe.FullName dist/tools/ffmpeg/ }
+          $license = Get-ChildItem -Path ffmpeg_unpacked -Recurse -Filter LICENSE* | Select-Object -First 1
+          if ($license) { Copy-Item $license.FullName dist/tools/ffmpeg/ }
+
+      - name: Собрать переносимую папку
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse build/windows/x64/runner/Release/* dist/
+          Copy-Item -Recurse assets/fonts dist/fonts
+
+          # Библиотеки времени выполнения MSVC кладём рядом с exe:
+          # на служебных ПК без прав администратора нет ни установщика
+          # Visual C++, ни возможности его поставить.
+          $redist = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" -Directory |
+                    Sort-Object Name -Descending | Select-Object -First 1
+          $crt = Join-Path $redist.FullName "x64\Microsoft.VC143.CRT"
+          foreach ($dll in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
+            Copy-Item (Join-Path $crt $dll) dist/
+          }
+
+          # Проверка: приложение не должно зависеть от того, что стоит
+          # на машине следователя.
+          foreach ($needed in @('subtitler.exe','flutter_windows.dll','msvcp140.dll',
+                                'vcruntime140.dll','vcruntime140_1.dll',
+                                'tools/ffmpeg/ffmpeg.exe','fonts/NotoSans-Regular.ttf')) {
+            if (-not (Test-Path (Join-Path dist $needed))) { throw "В сборке нет $needed" }
+          }
+
+          Compress-Archive -Path dist/* -DestinationPath subtitler-windows-x64.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subtitler-windows-x64
+          path: subtitler-windows-x64.zip
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+
+      - name: Зависимости
+        run: flutter pub get
+
+      - name: Анализ и тесты
+        run: |
+          flutter analyze
+          flutter test
+
+      # Подписывается отладочным ключом: раздаём APK напрямую, магазинов нет.
+      # Перед раздачей следователям сюда надо подставить свой keystore.
+      - name: Сборка APK
+        run: flutter build apk --release
+
+      - name: Проверить, что архитектура одна
+        run: |
+          ABIS=$(unzip -l build/app/outputs/flutter-apk/app-release.apk \
+                 | awk '{print $4}' | grep '^lib/' | cut -d/ -f2 | sort -u)
+          echo "Архитектуры в APK: $ABIS"
+          if [ "$ABIS" != "arm64-v8a" ]; then
+            echo "Ожидалась только arm64-v8a: лишние архитектуры утраивают размер"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: subtitler-android
+          path: build/app/outputs/flutter-apk/app-release.apk

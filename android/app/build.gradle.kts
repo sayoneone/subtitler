@@ -28,6 +28,21 @@ android {
         versionName = flutter.versionName
     }
 
+    // Ни ndk.abiFilters, ни --target-platform не убирают лишние архитектуры
+    // из готового AAR пакета ffmpeg — он приносит все четыре. Отсекаем их
+    // на упаковке: иначе в APK три копии ffmpeg и он весит под 200 МБ.
+    // Следствие: приложение работает только на 64-битных ARM — это все
+    // телефоны примерно с 2017 года.
+    packaging {
+        jniLibs {
+            excludes += listOf(
+                "lib/x86/**",
+                "lib/x86_64/**",
+                "lib/armeabi-v7a/**",
+            )
+        }
+    }
+
     buildTypes {
         release {
             // TODO: Add your own signing config for the release build.

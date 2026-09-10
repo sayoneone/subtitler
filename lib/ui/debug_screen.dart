@@ -23,9 +23,11 @@ class DebugScreen extends StatefulWidget {
   State<DebugScreen> createState() => _DebugScreenState();
 }
 
-class _DebugScreenState extends State<DebugScreen> {
+class _DebugScreenState extends State<DebugScreen>
+    with SingleTickerProviderStateMixin {
   final _keyField = TextEditingController();
   final _ffmpegField = TextEditingController();
+  late final TabController _tabs = TabController(length: 2, vsync: this);
   bool _dragging = false;
 
   DebugController get c => widget.controller;
@@ -44,6 +46,7 @@ class _DebugScreenState extends State<DebugScreen> {
   @override
   void dispose() {
     c.removeListener(_sync);
+    _tabs.dispose();
     _keyField.dispose();
     _ffmpegField.dispose();
     super.dispose();
@@ -65,13 +68,36 @@ class _DebugScreenState extends State<DebugScreen> {
             ),
         ],
       ),
-      body: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Expanded(flex: 3, child: _left()),
-          const VerticalDivider(width: 1),
-          Expanded(flex: 2, child: _LogPanel(log: c.log, onSave: c.saveLog)),
-        ],
+      body: LayoutBuilder(
+        builder: (context, constraints) {
+          // На телефоне две колонки не помещаются: кнопки обрезаются,
+          // поэтому журнал уезжает на отдельную вкладку.
+          if (constraints.maxWidth < 900) {
+            return Column(children: [
+              TabBar(
+                controller: _tabs,
+                tabs: const [Tab(text: 'Работа'), Tab(text: 'Журнал')],
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabs,
+                  children: [
+                    _left(),
+                    _LogPanel(log: c.log, onSave: c.saveLog),
+                  ],
+                ),
+              ),
+            ]);
+          }
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(flex: 3, child: _left()),
+              const VerticalDivider(width: 1),
+              Expanded(flex: 2, child: _LogPanel(log: c.log, onSave: c.saveLog)),
+            ],
+          );
+        },
       ),
     );
   }
@@ -132,7 +158,7 @@ class _DebugScreenState extends State<DebugScreen> {
           ),
         ]),
       ],
-      if (info == null || !info.hasLibass) ...[
+      if ((info == null || !info.hasLibass) && c.canInstallFfmpeg) ...[
         const SizedBox(height: 8),
         FilledButton.icon(
           onPressed: c.busy ? null : c.installFfmpeg,
@@ -145,6 +171,7 @@ class _DebugScreenState extends State<DebugScreen> {
           style: TextStyle(fontSize: 11, color: Colors.grey),
         ),
       ],
+      if (DebugController.isMobile) const SizedBox.shrink() else ...[
       const SizedBox(height: 10),
       Row(children: [
         Expanded(
@@ -169,7 +196,22 @@ class _DebugScreenState extends State<DebugScreen> {
           child: const Text('Найти'),
         ),
       ]),
+      ],
     ]);
+  }
+
+  /// Перетаскивание файлов есть только на десктопе.
+  Widget _dropZone({required Widget child}) {
+    if (DebugController.isMobile) return child;
+    return DropTarget(
+      onDragEntered: (_) => setState(() => _dragging = true),
+      onDragExited: (_) => setState(() => _dragging = false),
+      onDragDone: (details) {
+        setState(() => _dragging = false);
+        if (details.files.isNotEmpty) c.setVideo(details.files.first.path);
+      },
+      child: child,
+    );
   }
 
   Widget _check(CheckState state, String label) {
@@ -200,16 +242,19 @@ class _DebugScreenState extends State<DebugScreen> {
         ),
       ),
       const SizedBox(height: 8),
-      Row(children: [
-        FilledButton(
-          onPressed: c.busy ? null : () => c.saveKey(_keyField.text),
-          child: const Text('Проверить и сохранить'),
-        ),
-        const SizedBox(width: 16),
-        _check(c.translateCheck, 'перевод'),
-        const SizedBox(width: 12),
-        _check(c.sttCheck, 'распознавание'),
-      ]),
+      Wrap(
+        spacing: 14,
+        runSpacing: 8,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          FilledButton(
+            onPressed: c.busy ? null : () => c.saveKey(_keyField.text),
+            child: const Text('Проверить и сохранить'),
+          ),
+          _check(c.translateCheck, 'перевод'),
+          _check(c.sttCheck, 'распознавание'),
+        ],
+      ),
       if (c.keyError != null) ...[
         const SizedBox(height: 6),
         Text(c.keyError!, style: const TextStyle(color: Colors.red, fontSize: 12)),
@@ -227,14 +272,7 @@ class _DebugScreenState extends State<DebugScreen> {
 
   Widget _videoCard() {
     return _card(title: '3. Видео', children: [
-      DropTarget(
-        onDragEntered: (_) => setState(() => _dragging = true),
-        onDragExited: (_) => setState(() => _dragging = false),
-        onDragDone: (details) {
-          setState(() => _dragging = false);
-          if (details.files.isNotEmpty) c.setVideo(details.files.first.path);
-        },
-        child: Container(
+      _dropZone(child: Container(
           height: 96,
           decoration: BoxDecoration(
             border: Border.all(
@@ -245,7 +283,9 @@ class _DebugScreenState extends State<DebugScreen> {
           ),
           child: Center(
             child: c.videoPath == null
-                ? const Text('Перетащите сюда видео или выберите файл')
+                ? Text(DebugController.isMobile
+                    ? 'Выберите видео'
+                    : 'Перетащите сюда видео или выберите файл')
                 : Column(mainAxisAlignment: MainAxisAlignment.center, children: [
                     SelectableText(c.videoPath!,
                         style: const TextStyle(fontSize: 12)),
@@ -257,7 +297,7 @@ class _DebugScreenState extends State<DebugScreen> {
         ),
       ),
       const SizedBox(height: 10),
-      Row(children: [
+      Wrap(spacing: 8, runSpacing: 8, crossAxisAlignment: WrapCrossAlignment.center, children: [
         OutlinedButton(
           onPressed: c.busy
               ? null
@@ -280,9 +320,7 @@ class _DebugScreenState extends State<DebugScreen> {
           onPressed: c.busy ? c.cancel : null,
           child: const Text('Отмена'),
         ),
-        const SizedBox(width: 12),
-        if (c.progress != null)
-          Expanded(child: Text(_progressText(c.progress!))),
+        if (c.progress != null) Text(_progressText(c.progress!)),
       ]),
       if (c.languageVerdict != null)
         _verdictBlock(c.languageVerdict!, asking: c.awaitingLanguageChoice),
@@ -456,10 +494,11 @@ class _DebugScreenState extends State<DebugScreen> {
           label: const Text('Вшить субтитры'),
         ),
         const SizedBox(width: 8),
-        OutlinedButton(
-          onPressed: c.busy ? null : c.revealOutput,
-          child: const Text('Показать в Finder'),
-        ),
+        if (c.canRevealOutput)
+          OutlinedButton(
+            onPressed: c.busy ? null : c.revealOutput,
+            child: const Text('Показать в Finder'),
+          ),
       ]),
       if (c.burnedPath != null) ...[
         const SizedBox(height: 6),
