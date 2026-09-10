@@ -1,0 +1,50 @@
+name: subtitler
+description: Русские субтитры для видео с турецкой и узбекской речью
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ^3.12.2
+  flutter: ">=3.44.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # сеть и файлы
+  dio: ^5.11.1
+  path: ^1.9.0
+  path_provider: ^2.1.6
+
+  # ключ пользователя
+  flutter_secure_storage: ^11.1.0
+
+  # ffmpeg на Android (на десктопе используем внешний ffmpeg.exe)
+  ffmpeg_kit_flutter_new: ^4.6.2
+
+  # плеер предпросмотра (план 2)
+  media_kit: ^1.2.6
+  media_kit_video: ^2.0.1
+  media_kit_libs_video: ^1.0.7
+
+  # приём и выдача файлов (план 2)
+  receive_sharing_intent: ^1.9.0
+  share_plus: ^13.3.0
+  gal: ^2.3.3
+  desktop_drop: ^0.8.4
+  file_selector: ^1.1.0
+  window_manager: ^0.5.2
+  package_info_plus: ^10.2.1
+  wakelock_plus: ^1.8.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/
