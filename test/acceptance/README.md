@@ -39,16 +39,23 @@ dart run tool/pipeline_cli.dart test/acceptance/samples/v35.mp4 --lang tr-TR
 в нём нет и шаг вшивания на такой машине не выполняется: CLI честно
 сообщает об этом и завершается с кодом 3, успев записать оба `.srt`.
 
-Системный ffmpeg менять не нужно. Достаточно положить рядом сборку с
-libass и указать на неё переменной окружения — её понимают и тесты,
-и CLI:
+Системный ffmpeg менять не нужно. В homebrew-core есть параллельная
+формула `ffmpeg-full` — та же версия, но с libass; она keg-only, то есть
+не подменяет уже установленный ffmpeg и ни с чем не конфликтует:
 
 ```bash
-export SUBTITLER_FFMPEG=/путь/к/ffmpeg-с-libass
-export SUBTITLER_FFPROBE=/путь/к/ffprobe   # необязательно
+brew install ffmpeg-full
+export SUBTITLER_FFMPEG="$(brew --prefix ffmpeg-full)/bin/ffmpeg"
+export SUBTITLER_FFPROBE="$(brew --prefix ffmpeg-full)/bin/ffprobe"
 flutter test                                # пропущенные тесты вшивания оживут
 dart run tool/pipeline_cli.dart samples/v35.mp4 --lang tr-TR
 ```
+
+Проверено 2026-09-11: с `ffmpeg-full` весь набор проходит целиком
+(90 тестов, ни одного пропущенного), с системным ffmpeg — 86 и 4
+пропущенных. Опции вида `--with-libass` у Homebrew давно убраны,
+а в кране `homebrew-ffmpeg` такого флага и не было: libass там
+подключается безусловно.
 
 В релизных сборках libass есть всегда: на Windows — gyan.dev
 release-essentials, на Android — ffmpeg_kit_flutter_new full-gpl,

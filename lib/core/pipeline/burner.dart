@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import '../ffmpeg/commands.dart';
 import '../ffmpeg/ffmpeg_runner.dart';
@@ -6,12 +7,28 @@ import '../ffmpeg/ffmpeg_runner.dart';
 /// Яркость, выше которой пиксель считаем частью белого текста субтитров.
 const int kSubtitleLumaThreshold = 200;
 
-/// На столько должно вырасти число светлых пикселей в нижней полосе кадра,
-/// чтобы считать субтитры отрисованными. Шум компрессии столько не даёт.
-const int kSubtitleMinNewPixels = 300;
+/// Доля площади нижней полосы, которую должен занять появившийся текст.
+const double kSubtitleMinNewFraction = 0.0015;
+
+/// Нижняя граница порога: на маленьких кадрах доля выходит слишком мелкой.
+const int kSubtitleMinNewPixelsFloor = 120;
 
 int countBrightPixels(List<int> grayBytes) =>
     grayBytes.where((b) => b > kSubtitleLumaThreshold).length;
+
+/// Насколько должно вырасти число светлых пикселей, чтобы поверить,
+/// что субтитры отрисовались.
+///
+/// Пороги замерены на этой сборке (2026-09-11, ffmpeg 9.0.1 + libass 0.17.5):
+/// перекодирование ЯРКОГО ролика 848x480 без субтитров сдвигает счётчик
+/// примерно на 60 пикселей в любую сторону — это шум компрессии;
+/// одна реальная реплика на таком же кадре добавляет около 1100.
+/// Порог берём долей от площади полосы, чтобы он не терял смысл на кадрах
+/// другого размера, где шум растёт вместе с площадью.
+int subtitleMinNewPixels(int bandPixels) => math.max(
+      kSubtitleMinNewPixelsFloor,
+      (bandPixels * kSubtitleMinNewFraction).round(),
+    );
 
 class SubtitlesInvisibleException implements Exception {
   final String message;
@@ -81,12 +98,13 @@ class SubtitleBurner {
     required String burned,
     required double atSeconds,
   }) async {
-    final before = await _brightPixels(original, atSeconds);
-    final after = await _brightPixels(burned, atSeconds);
-    return after - before >= kSubtitleMinNewPixels;
+    final before = await _grayBand(original, atSeconds);
+    final after = await _grayBand(burned, atSeconds);
+    final grew = countBrightPixels(after) - countBrightPixels(before);
+    return grew >= subtitleMinNewPixels(after.length);
   }
 
-  Future<int> _brightPixels(String video, double atSeconds) async {
+  Future<List<int>> _grayBand(String video, double atSeconds) async {
     final dir = Directory.systemTemp.createTempSync('band_');
     try {
       final bandPath = '${dir.path}${Platform.pathSeparator}band.gray';
@@ -98,7 +116,7 @@ class SubtitleBurner {
       if (!result.ok) {
         throw StateError('Не удалось получить кадр из $video: ${result.log}');
       }
-      return countBrightPixels(File(bandPath).readAsBytesSync());
+      return File(bandPath).readAsBytesSync();
     } finally {
       dir.deleteSync(recursive: true);
     }

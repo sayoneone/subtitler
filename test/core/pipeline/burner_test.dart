@@ -11,14 +11,15 @@ import 'package:subtitler/core/pipeline/burner.dart';
 final _runner = ProcessFfmpegRunner.fromEnvironment();
 
 String? _burnSkipReason() {
-  final result = Process.runSync(_runner.ffmpegPath, ['-hide_banner', '-filters']);
+  final result =
+      Process.runSync(_runner.ffmpegPath, ['-hide_banner', '-filters']);
   final hasSubtitles =
       RegExp(r'\bsubtitles\b').hasMatch(result.stdout as String);
   if (hasSubtitles) return null;
-  return 'ffmpeg в PATH собран без libass: фильтра subtitles нет, '
-      'вшивание на этой машине непроверяемо. Укажите путь к сборке с libass '
-      'через переменную $kFfmpegPathEnv или проверяйте вшивание '
-      'на Windows/Android.';
+  return 'ffmpeg собран без libass: фильтра subtitles нет, вшивание на этой '
+      'машине непроверяемо. Поставьте сборку с libass (brew install '
+      'ffmpeg-full) и укажите её через переменную $kFfmpegPathEnv, '
+      'либо проверяйте вшивание на Windows/Android.';
 }
 
 void main() {
@@ -33,19 +34,21 @@ void main() {
     video = '${tmp.path}/src.mp4';
     srt = '${tmp.path}/subs.srt';
 
-    // Тёмный ролик: любой светлый пиксель внизу — это уже субтитр.
+    // Размер как у реальных роликов из WhatsApp. Кадр тёмный, поэтому
+    // любой светлый пиксель внизу — это уже субтитр.
     await runner.run([
       '-y', '-hide_banner', '-loglevel', 'error',
-      '-f', 'lavfi', '-i', 'color=c=black:s=640x360:d=6',
+      '-f', 'lavfi', '-i', 'color=c=#202020:s=848x480:d=6',
       '-f', 'lavfi', '-i', 'sine=frequency=440:duration=6',
       '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac',
       '-shortest', video,
     ]);
 
+    // Реплика реальной длины — из ручного прогона 2026-09-02.
     File(srt).writeAsStringSync('''
 1
 00:00:01,000 --> 00:00:05,000
-Проверка субтитров
+***. Вот такой ***, брат.
 ''');
   });
   tearDownAll(() => tmp.deleteSync(recursive: true));
@@ -54,6 +57,14 @@ void main() {
     expect(countBrightPixels([0, 10, 199, 200, 201, 255]), 2,
         reason: 'строго больше порога 200');
     expect(countBrightPixels(const []), 0);
+  });
+
+  test('Порог растёт вместе с площадью полосы, но не опускается ниже пола', () {
+    // 848x480: нижние 20 % — это 81408 пикселей.
+    expect(subtitleMinNewPixels(81408), 122);
+    // На маленьком кадре доля вышла бы мельче пола.
+    expect(subtitleMinNewPixels(46080), kSubtitleMinNewPixelsFloor);
+    expect(subtitleMinNewPixels(0), kSubtitleMinNewPixelsFloor);
   });
 
   test('Вшивание создаёт видео, где субтитры действительно видны', () async {
@@ -107,15 +118,20 @@ void main() {
     );
   }, skip: burnSkip);
 
-  test('Копия без субтитров проверку не проходит', () async {
-    final copy = '${tmp.path}/copy.mp4';
-    await runner.run([
+  test('Перекодирование без субтитров проверку не проходит', () async {
+    // Именно перекодирование, а не копирование потока: так проверяется,
+    // что шум компрессии не выдаётся за появившийся текст.
+    final reencoded = '${tmp.path}/reencoded.mp4';
+    final result = await runner.run([
       '-y', '-hide_banner', '-loglevel', 'error',
-      '-i', video, '-c', 'copy', copy,
+      '-i', video,
+      '-c:v', 'libx264', '-crf', '18', '-preset', 'veryfast', '-c:a', 'copy',
+      reencoded,
     ]);
+    expect(result.ok, isTrue, reason: result.log);
     expect(
       await SubtitleBurner(runner)
-          .subtitlesVisible(original: video, burned: copy, atSeconds: 3.0),
+          .subtitlesVisible(original: video, burned: reencoded, atSeconds: 3.0),
       isFalse,
       reason: 'иначе проверка бесполезна и пропустит невидимые субтитры',
     );
