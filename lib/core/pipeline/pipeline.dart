@@ -6,6 +6,7 @@ import '../cloud/speechkit_client.dart';
 import '../cloud/translate_client.dart';
 import '../ffmpeg/commands.dart';
 import '../ffmpeg/ffmpeg_runner.dart';
+import '../logging.dart';
 import '../models.dart';
 import '../session_store.dart';
 import 'segment_cutter.dart';
@@ -43,6 +44,7 @@ class Pipeline {
   final TranslateClient translate;
   final SessionStore store;
   final String workDir;
+  final DebugLog log;
 
   Pipeline({
     required this.runner,
@@ -50,7 +52,8 @@ class Pipeline {
     required this.translate,
     required this.store,
     required this.workDir,
-  });
+    DebugLog? log,
+  }) : log = log ?? DebugLog.instance;
 
   Future<Session> process({
     required String videoPath,
@@ -64,13 +67,19 @@ class Pipeline {
     final report = onProgress ?? (_) {};
 
     Directory(workDir).createSync(recursive: true);
+    log.info('Обработка: $videoPath, язык $lang');
+    log.debug('Рабочая папка: $workDir');
     final duration = await runner.probeDuration(videoPath);
+    log.info('Длительность ${duration.toStringAsFixed(2)} с');
     final fingerprint = SourceFingerprint(
       sizeBytes: File(videoPath).lengthSync(),
       durationSec: duration,
     );
 
     var session = resumeFrom;
+    if (session != null && session.lang == lang) {
+      log.info('Продолжаем прежнюю сессию');
+    }
     if (session == null || session.lang != lang) {
       session = await _prepare(
         videoPath: videoPath,
@@ -80,6 +89,8 @@ class Pipeline {
         report: report,
       );
     } else if (!_segmentsPresent(session)) {
+      log.warn('Файлы сегментов пропали — режем заново, '
+          'уже распознанный текст сохраняем');
       // Приложение перезапускали: рабочая папка с нарезкой исчезла.
       // Режем заново, но уже распознанный текст переносим — он оплачен.
       final fresh = await _prepare(
@@ -106,7 +117,10 @@ class Pipeline {
     );
 
     session = session.copyWith(cues: applyAutoFlags(session.cues));
-    await store.save(session);
+    final saved = await store.save(session);
+    log.info('Готово. Реплик ${session.cues.length}, '
+        'на проверку ${session.cues.where((c) => c.flags.isNotEmpty).length}. '
+        'Сессия: $saved');
     report(const PipelineProgress(PipelineStage.done));
     return session;
   }
@@ -130,7 +144,16 @@ class Pipeline {
     report(const PipelineProgress(PipelineStage.detectingSilence));
     final scan = await SilenceScanner(runner)
         .scan(audioPath: audioPath, duration: duration);
-    if (scan.segments.isEmpty) throw const NoSpeechFoundException();
+    if (scan.segments.isEmpty) {
+      log.error('Речь не найдена ни на одном пороге тишины');
+      throw const NoSpeechFoundException();
+    }
+    log.info('Порог тишины ${scan.threshold}, сегментов ${scan.segments.length}'
+        '${scan.forcedSplit ? ' (пауз нет, нарезка принудительная)' : ''}');
+    for (final s in scan.segments) {
+      log.debug('сегмент ${s.start.toStringAsFixed(2)}–'
+          '${s.end.toStringAsFixed(2)} (${s.duration.toStringAsFixed(2)} с)');
+    }
 
     final files = await SegmentCutter(runner).cut(
       audioPath: audioPath,
@@ -221,10 +244,15 @@ class Pipeline {
           orig: text,
           status: text.trim().isEmpty ? CueStatus.empty : CueStatus.ok,
         );
-      } on AuthException {
+        log.info(text.trim().isEmpty
+            ? 'реплика ${cue.index}: речи нет'
+            : 'реплика ${cue.index}: $text');
+      } on AuthException catch (e) {
+        log.error('Остановка: $e');
         await store.save(session.copyWith(cues: cues));
         rethrow; // ключ или роль — продолжать бессмысленно
-      } on ApiException {
+      } on ApiException catch (e) {
+        log.warn('реплика ${cue.index}: не распозналась ($e)');
         cues[position] = cue.copyWith(status: CueStatus.failed);
       }
 
@@ -261,14 +289,17 @@ class Pipeline {
         ),
         sleep: sleep,
       );
+      log.info('Переведено реплик: ${translations.length}');
       for (var i = 0; i < pending.length && i < translations.length; i++) {
         final position = cues.indexWhere((c) => c.index == pending[i].index);
         cues[position] = cues[position].copyWith(ru: translations[i]);
       }
-    } on AuthException {
+    } on AuthException catch (e) {
+      log.error('Перевод остановлен: $e');
       await store.save(session.copyWith(cues: cues));
       rethrow;
-    } on ApiException {
+    } on ApiException catch (e) {
+      log.warn('Перевод не получен: $e');
       // Перевод не получен: распознанный текст не теряем, а реплики
       // получат пометку в applyAutoFlags.
     }
