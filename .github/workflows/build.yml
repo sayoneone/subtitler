@@ -85,6 +85,9 @@ jobs:
         with:
           name: subtitler-windows-x64
           path: subtitler-windows-x64.zip
+          # На бесплатном тарифе всего 500 МБ под артефакты, а по умолчанию
+          # они лежат 90 дней. Сборки крупные — держим их две недели.
+          retention-days: 14
 
   android:
     runs-on: ubuntu-latest
@@ -128,3 +131,4 @@ jobs:
         with:
           name: subtitler-android
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
