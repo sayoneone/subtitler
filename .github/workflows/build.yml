@@ -68,19 +68,22 @@ jobs:
           Copy-Item -Recurse build/windows/x64/runner/Release/* dist/
           Copy-Item -Recurse assets/fonts dist/fonts
 
-          # Библиотеки времени выполнения MSVC кладём рядом с exe:
-          # на служебных ПК без прав администратора нет ни установщика
+          # Библиотеки времени выполнения MSVC кладём рядом с exe: на
+          # служебных ПК без прав администратора нет ни установщика
           # Visual C++, ни возможности его поставить.
-          $vsRoot = "C:\Program Files\Microsoft Visual Studio\2022"
-          $redist = Get-ChildItem $vsRoot -Directory |
-                    ForEach-Object { Join-Path $_.FullName "VC\Redist\MSVC" } |
-                    Where-Object { Test-Path $_ } |
-                    Get-ChildItem -Directory |
-                    Sort-Object Name -Descending | Select-Object -First 1
-          if (-not $redist) { throw "Не найдены библиотеки MSVC для распространения" }
-          $crt = Join-Path $redist.FullName "x64\Microsoft.VC143.CRT"
+          # Папку ищем по самому файлу: структура каталогов Redist меняется
+          # от версии к версии, и угадывать её именем — ненадёжно.
+          $anchor = Get-ChildItem "C:\Program Files\Microsoft Visual Studio" `
+                      -Recurse -Filter msvcp140.dll -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match '\\x64\\' -and $_.FullName -match 'Redist' } |
+                    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $anchor) { throw "Не найдены библиотеки MSVC для распространения" }
+          $crt = $anchor.DirectoryName
+          Write-Host "Библиотеки MSVC: $crt"
           foreach ($dll in @('msvcp140.dll','vcruntime140.dll','vcruntime140_1.dll')) {
-            Copy-Item (Join-Path $crt $dll) dist/
+            $src = Join-Path $crt $dll
+            if (-not (Test-Path $src)) { throw "Нет $dll в $crt" }
+            Copy-Item $src dist/
           }
 
           # Проверка: приложение не должно зависеть от того, что стоит
