@@ -49,12 +49,27 @@ void main() {
       output: 'out.mp4',
     );
     final filter = args[args.indexOf('-vf') + 1];
-    expect(filter, contains('subtitles=subs.srt'));
-    expect(filter, contains('fontsdir=fonts'));
+    // Пути в кавычках: иначе ffmpeg режет значение по двоеточию.
+    expect(filter, contains("subtitles='subs.srt'"));
+    expect(filter, contains("fontsdir='fonts'"));
     expect(filter, contains("force_style='FontName=Noto Sans,Outline=2'"));
     expect(args, containsAllInOrder(['-c:v', 'libx264']));
     expect(args, containsAllInOrder(['-crf', '18']));
     expect(args, containsAllInOrder(['-c:a', 'copy']));
+  });
+
+  test('Windows-путь в фильтре берётся в кавычки и не разваливается', () {
+    final args = FfmpegCommands.burnSubtitles(
+      input: r'C:\video\in.mp4',
+      srtPath: r'C:\Users\dev\subs.srt',
+      fontsDir: r'C:\app\fonts',
+      output: r'C:\video\out.mp4',
+    );
+    final filter = args[args.indexOf('-vf') + 1];
+    expect(filter, contains(r"subtitles='C\:/Users/dev/subs.srt'"));
+    expect(filter, contains(r"fontsdir='C\:/app/fonts'"));
+    // Двоеточие диска не должно оказаться голым: по нему ffmpeg делит опции.
+    expect(filter.replaceAll(r'\:', ''), isNot(contains('C:')));
   });
 
   test('Команда серой полосы вырезает нижние 20 % кадра в файл', () {

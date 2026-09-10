@@ -59,8 +59,12 @@ class FfmpegCommands {
     required String fontsDir,
     required String output,
   }) {
-    final filter = 'subtitles=${escapeFilterArg(srtPath)}'
-        ':fontsdir=${escapeFilterArg(fontsDir)}'
+    // Пути обязательно в кавычках. Без них ffmpeg режет значение по
+    // двоеточию — и на Windows двоеточие диска в `C:/…` превращает хвост
+    // пути в «следующую опцию фильтра». Экранирования двоеточия для этого
+    // недостаточно: разбор идёт в два прохода и escape съедается на первом.
+    final filter = "subtitles='${escapeFilterArg(srtPath)}'"
+        ":fontsdir='${escapeFilterArg(fontsDir)}'"
         ":force_style='FontName=Noto Sans,Outline=2'";
     return [
       '-y', '-hide_banner', '-loglevel', 'error',
