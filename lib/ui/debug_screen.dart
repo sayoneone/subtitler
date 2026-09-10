@@ -30,6 +30,13 @@ class _DebugScreenState extends State<DebugScreen>
   late final TabController _tabs = TabController(length: 2, vsync: this);
   bool _dragging = false;
 
+  /// Журнал занимает почти половину окна, а нужен не всегда — прячется
+  /// кнопкой в заголовке. Он продолжает писаться и в свёрнутом виде.
+  bool _showLog = true;
+
+  /// Экран слишком узкий для двух колонок.
+  bool _narrow = false;
+
   DebugController get c => widget.controller;
 
   @override
@@ -60,19 +67,28 @@ class _DebugScreenState extends State<DebugScreen>
         actions: [
           if (c.busy)
             const Padding(
-              padding: EdgeInsets.only(right: 16),
+              padding: EdgeInsets.only(right: 8),
               child: Center(
                 child: SizedBox(
                     width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)),
               ),
             ),
+          // На узком экране журнал и так на отдельной вкладке — прятать нечего.
+          if (!_narrow)
+            IconButton(
+              tooltip: _showLog ? 'Скрыть журнал' : 'Показать журнал',
+              icon: Icon(_showLog ? Icons.view_sidebar : Icons.view_sidebar_outlined),
+              onPressed: () => setState(() => _showLog = !_showLog),
+            ),
         ],
       ),
       body: LayoutBuilder(
         builder: (context, constraints) {
+          _narrow = constraints.maxWidth < 900;
+
           // На телефоне две колонки не помещаются: кнопки обрезаются,
           // поэтому журнал уезжает на отдельную вкладку.
-          if (constraints.maxWidth < 900) {
+          if (_narrow) {
             return Column(children: [
               TabBar(
                 controller: _tabs,
@@ -89,6 +105,9 @@ class _DebugScreenState extends State<DebugScreen>
               ),
             ]);
           }
+
+          if (!_showLog) return _left();
+
           return Row(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
