@@ -10,8 +10,8 @@ void main() {
     const cue = Cue(
       index: 3,
       range: TimeRange(7.52, 13.23),
-      orig: '*** biraz *** var',
-      ru: '***',
+      orig: 'sabah vardiyası başladı',
+      ru: 'Утренняя смена началась',
       status: CueStatus.ok,
       flags: {CueFlag.repeatLoop},
     );

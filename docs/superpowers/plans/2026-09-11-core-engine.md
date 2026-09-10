@@ -259,8 +259,8 @@ void main() {
     const cue = Cue(
       index: 3,
       range: TimeRange(7.52, 13.23),
-      orig: '*** biraz *** var',
-      ru: '***',
+      orig: 'sabah vardiyası başladı',
+      ru: 'Утренняя смена началась',
       status: CueStatus.ok,
       flags: {CueFlag.repeatLoop},
     );
@@ -925,12 +925,12 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/srt.dart';
 
 const _cues = [
-  Cue(index: 1, range: TimeRange(0.0, 1.7), orig: 'abi gün ***',
-      ru: 'Брат, наш ***.', status: CueStatus.ok, flags: {}),
+  Cue(index: 1, range: TimeRange(0.0, 1.7), orig: 'ağabey haber ver',
+      ru: 'Брат, дай знать.', status: CueStatus.ok, flags: {}),
   Cue(index: 2, range: TimeRange(3.18, 6.55), orig: '', ru: '',
       status: CueStatus.empty, flags: {}),
-  Cue(index: 3, range: TimeRange(7.52, 13.23), orig: 'ne kadar çıkar ***',
-      ru: 'Сколько материала выйдет.', status: CueStatus.ok, flags: {}),
+  Cue(index: 3, range: TimeRange(7.52, 13.23), orig: 'kaç kişi geldi bugün',
+      ru: 'Сколько человек сегодня пришло.', status: CueStatus.ok, flags: {}),
 ];
 
 void main() {
@@ -948,13 +948,13 @@ void main() {
 
   test('Пустые реплики не попадают в SRT, нумерация сплошная', () {
     final srt = buildSrt(_cues, field: SrtField.ru);
-    expect(srt, contains('1\n00:00:00,000 --> 00:00:01,700\nБрат, наш ***.'));
-    expect(srt, contains('2\n00:00:07,520 --> 00:00:13,230\nСколько материала выйдет.'));
+    expect(srt, contains('1\n00:00:00,000 --> 00:00:01,700\nБрат, дай знать.'));
+    expect(srt, contains('2\n00:00:07,520 --> 00:00:13,230\nСколько человек сегодня пришло.'));
     expect(srt, isNot(contains('00:00:03,180')), reason: 'пустая реплика пропущена');
   });
 
   test('Поле выбирается параметром', () {
-    expect(buildSrt(_cues, field: SrtField.orig), contains('abi gün ***'));
+    expect(buildSrt(_cues, field: SrtField.orig), contains('ağabey haber ver'));
     expect(buildSrt(_cues, field: SrtField.orig), isNot(contains('Брат')));
   });
 
@@ -963,7 +963,7 @@ void main() {
     expect(parsed.length, 2);
     expect(parsed.first.range.start, closeTo(0.0, 1e-9));
     expect(parsed.first.range.end, closeTo(1.7, 1e-9));
-    expect(parsed.first.ru, 'Брат, наш ***.');
+    expect(parsed.first.ru, 'Брат, дай знать.');
     expect(parsed.last.range.start, closeTo(7.52, 1e-9));
   });
 
@@ -1123,8 +1123,8 @@ void main() {
   });
 
   test('Зацикленный повтор токена ловится с четвёртого раза', () {
-    expect(hasRepeatLoop('*** *** *** ***'), isTrue);
-    expect(hasRepeatLoop('*** *** ***'), isFalse);
+    expect(hasRepeatLoop('beramiz beramiz beramiz beramiz'), isTrue);
+    expect(hasRepeatLoop('beramiz beramiz beramiz'), isFalse);
     expect(hasRepeatLoop('bu niye çok sulu ***'), isFalse);
   });
 
@@ -1136,7 +1136,7 @@ void main() {
     final flagged = applyAutoFlags([
       _cue(1, 0, 2, orig: 'da da da da da'),
       _cue(2, 3, 5, status: CueStatus.failed, orig: '', ru: ''),
-      _cue(3, 6, 8, orig: 'metin var', ru: ''),
+      _cue(3, 6, 8, orig: 'yazı var', ru: ''),
       _cue(4, 9, 11),
     ]);
     expect(flagged[0].flags, contains(CueFlag.repeatLoop));
@@ -1189,7 +1189,7 @@ List<TimingIssue> validateTimings(List<Cue> cues) {
 }
 
 /// Ловит характерный сбой распознавания: одно и то же слово подряд
-/// четыре раза и больше (реальный случай — «***» восемь раз).
+/// четыре раза и больше (зацикливание: одно слово подряд много раз).
 bool hasRepeatLoop(String text) {
   final tokens = text
       .toLowerCase()
@@ -3754,7 +3754,9 @@ dart run tool/pipeline_cli.dart "test/acceptance/samples/v35.mp4" --lang tr-TR
 
 Проверить по каждому ролику:
 1. Выбранный порог и число сегментов совпали с таблицей (расхождение границ до 0.05 с допустимо).
-2. Распознанный турецкий текст осмысленный: в v35 должны появиться слова про весы (`***`) и субботу (`***`).
+2. Распознанный текст осмысленный — не набор несвязанных слов. Эталонные
+   фразы держите в локальном файле рядом с образцами: в репозиторий
+   содержимое реальных записей не попадает.
 3. Сегменты без речи получили статус `empty` и не попали в SRT.
 4. Последняя строка вывода — `Субтитры видны в кадре: да`.
 5. Открыть `_ru.mp4` и глазами убедиться, что русский текст читается и не выходит за кадр.

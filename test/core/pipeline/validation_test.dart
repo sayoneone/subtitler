@@ -31,8 +31,8 @@ void main() {
   });
 
   test('Зацикленный повтор токена ловится с четвёртого раза', () {
-    expect(hasRepeatLoop('*** *** *** ***'), isTrue);
-    expect(hasRepeatLoop('*** *** ***'), isFalse);
+    expect(hasRepeatLoop('beramiz beramiz beramiz beramiz'), isTrue);
+    expect(hasRepeatLoop('beramiz beramiz beramiz'), isFalse);
     expect(hasRepeatLoop('bu niye çok sulu ***'), isFalse);
   });
 
@@ -44,7 +44,7 @@ void main() {
     final flagged = applyAutoFlags([
       _cue(1, 0, 2, orig: 'da da da da da'),
       _cue(2, 3, 5, status: CueStatus.failed, orig: '', ru: ''),
-      _cue(3, 6, 8, orig: 'metin var', ru: ''),
+      _cue(3, 6, 8, orig: 'yazı var', ru: ''),
       _cue(4, 9, 11),
     ]);
     expect(flagged[0].flags, contains(CueFlag.repeatLoop));

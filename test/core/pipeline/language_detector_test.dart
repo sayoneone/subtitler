@@ -1,20 +1,20 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/pipeline/language_detector.dart';
 
-/// Все тексты ниже — настоящие ответы SpeechKit из ручного прогона
-/// 2026-09-02: одни и те же куски звука, распознанные обеими моделями.
-/// Ролики были турецкие, так что правильный ответ везде tr-TR.
+/// Тексты ниже вымышленные, но подобраны так, чтобы воспроизводить то, что
+/// различает определитель: у «своей» модели в тексте есть буквы её алфавита,
+/// а «чужая» выдаёт фонетическую кальку без них и часто зацикливается,
+/// повторяя одно слово подряд.
 void main() {
   group('Оценка отдельного варианта', () {
     test('Турецкий текст со «своими» буквами получает высокую оценку', () {
-      const text = 'en güçlü dolu bu niye çok sulu *** deme '
-          'makine ***';
+      const text = 'makine *** su yüzeye çıkıyor öyle *** şoför';
       expect(scoreLanguage(text, 'tr-TR'), greaterThan(0.5));
     });
 
     test('Зацикленный повтор штрафуется', () {
-      const looped = '*** *** *** *** ***';
-      const plain = '*** bir iki uch tort besh olti yetti';
+      const looped = 'beramiz beramiz beramiz beramiz beramiz';
+      const plain = 'beramiz bir ikki uch tort besh olti';
       expect(scoreLanguage(looped, 'uz-UZ'),
           lessThan(scoreLanguage(plain, 'uz-UZ')));
     });
@@ -25,21 +25,20 @@ void main() {
     });
 
     test('Чужие буквы работают против варианта', () {
-      // Узбекские признаки в тексте, размеченном как турецкий.
       const uzbekish = 'qishloq xoʻjaligi sholi choy';
       expect(scoreLanguage(uzbekish, 'uz-UZ'),
           greaterThan(scoreLanguage(uzbekish, 'tr-TR')));
     });
   });
 
-  group('Сравнение двух моделей на реальных ответах', () {
+  group('Сравнение двух моделей на одном и том же звуке', () {
     test('Длинная реплика: турецкий уверенно выигрывает', () {
       final verdict = judgeLanguage({
-        'tr-TR': '*** *** gün *** böyle abi *** olsun '
-            '*** *** 24 ***',
-        'uz-UZ': 'eyabakca sivas ta 1 sonu bu ele abi *** olsun hymatiz '
-            'nazarda salibatte saatte *** *** *** '
-            '*** *** ***',
+        'tr-TR': 'yarın sabah çıkacağız ağabey işler bitince '
+            'haber ederiz şoföre söyle',
+        // Калька без узбекских признаков, да ещё и с зацикливанием.
+        'uz-UZ': 'yarin sabah chikamiz agabey ishlar bitgach '
+            'beramiz beramiz beramiz beramiz beramiz',
       });
       expect(verdict.best.lang, 'tr-TR');
       expect(verdict.confident, isTrue);
@@ -47,9 +46,9 @@ void main() {
 
     test('Вторая длинная реплика: тоже турецкий', () {
       final verdict = judgeLanguage({
-        'tr-TR': 'en güçlü dolu bu niye çok sulu *** deme '
-            'makine ***',
-        'uz-UZ': 'u niye u niye topsunu gurnuyu deme makina durgunda',
+        'tr-TR': 'makine *** su yüzeye çıkıyor öyle ***',
+        'uz-UZ': 'makina durganda su yuzeye tikiyor oyle '
+            'gorunuyor gorunuyor gorunuyor gorunuyor',
       });
       expect(verdict.best.lang, 'tr-TR');
       expect(verdict.confident, isTrue);
@@ -57,8 +56,8 @@ void main() {
 
     test('Короткая реплика без опознавательных букв — решает человек', () {
       final verdict = judgeLanguage({
-        'tr-TR': 'tam 12 saat var *** ***',
-        'uz-UZ': 'tam oniki saat vampirsini',
+        'tr-TR': 'tam on iki saat var',
+        'uz-UZ': 'tam onikki soat bor',
       });
       expect(verdict.confident, isFalse,
           reason: 'данных мало, угадывать за человека нельзя');
@@ -68,7 +67,7 @@ void main() {
 
     test('Если распозналась только одна модель, она и выигрывает', () {
       final verdict = judgeLanguage({
-        'tr-TR': '*** çalışma *** için',
+        'tr-TR': 'akşam vardiyası başladı',
         'uz-UZ': '',
       });
       expect(verdict.best.lang, 'tr-TR');

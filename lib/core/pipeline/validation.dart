@@ -24,8 +24,8 @@ List<TimingIssue> validateTimings(List<Cue> cues) {
   return issues;
 }
 
-/// Ловит характерный сбой распознавания: одно и то же слово подряд
-/// четыре раза и больше (реальный случай — «***» восемь раз).
+/// Ловит характерный сбой распознавания — зацикливание: одно и то же
+/// слово подряд четыре раза и больше.
 bool hasRepeatLoop(String text) {
   final tokens = text
       .toLowerCase()

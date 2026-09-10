@@ -3,12 +3,12 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/srt.dart';
 
 const _cues = [
-  Cue(index: 1, range: TimeRange(0.0, 1.7), orig: 'abi gün ***',
-      ru: 'Брат, наш ***.', status: CueStatus.ok, flags: {}),
+  Cue(index: 1, range: TimeRange(0.0, 1.7), orig: 'ağabey haber ver',
+      ru: 'Брат, дай знать.', status: CueStatus.ok, flags: {}),
   Cue(index: 2, range: TimeRange(3.18, 6.55), orig: '', ru: '',
       status: CueStatus.empty, flags: {}),
-  Cue(index: 3, range: TimeRange(7.52, 13.23), orig: 'ne kadar çıkar ***',
-      ru: 'Сколько материала выйдет.', status: CueStatus.ok, flags: {}),
+  Cue(index: 3, range: TimeRange(7.52, 13.23), orig: 'kaç kişi geldi bugün',
+      ru: 'Сколько человек сегодня пришло.', status: CueStatus.ok, flags: {}),
 ];
 
 void main() {
@@ -26,13 +26,13 @@ void main() {
 
   test('Пустые реплики не попадают в SRT, нумерация сплошная', () {
     final srt = buildSrt(_cues, field: SrtField.ru);
-    expect(srt, contains('1\n00:00:00,000 --> 00:00:01,700\nБрат, наш ***.'));
-    expect(srt, contains('2\n00:00:07,520 --> 00:00:13,230\nСколько материала выйдет.'));
+    expect(srt, contains('1\n00:00:00,000 --> 00:00:01,700\nБрат, дай знать.'));
+    expect(srt, contains('2\n00:00:07,520 --> 00:00:13,230\nСколько человек сегодня пришло.'));
     expect(srt, isNot(contains('00:00:03,180')), reason: 'пустая реплика пропущена');
   });
 
   test('Поле выбирается параметром', () {
-    expect(buildSrt(_cues, field: SrtField.orig), contains('abi gün ***'));
+    expect(buildSrt(_cues, field: SrtField.orig), contains('ağabey haber ver'));
     expect(buildSrt(_cues, field: SrtField.orig), isNot(contains('Брат')));
   });
 
@@ -41,7 +41,7 @@ void main() {
     expect(parsed.length, 2);
     expect(parsed.first.range.start, closeTo(0.0, 1e-9));
     expect(parsed.first.range.end, closeTo(1.7, 1e-9));
-    expect(parsed.first.ru, 'Брат, наш ***.');
+    expect(parsed.first.ru, 'Брат, дай знать.');
     expect(parsed.last.range.start, closeTo(7.52, 1e-9));
   });
 
