@@ -1,4 +1,6 @@
 import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/ffmpeg/process_runner.dart';
 import 'package:subtitler/core/models.dart';
@@ -44,7 +46,7 @@ void main() {
       segments: const [TimeRange(0.0, 2.0), TimeRange(3.0, 5.0)],
       outputDir: tmp.path,
     );
-    expect(files.map((f) => f.path.split('/').last).toList(),
+    expect(files.map((f) => p.basename(f.path)).toList(),
         ['seg_001.ogg', 'seg_002.ogg']);
   });
 

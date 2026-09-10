@@ -2,10 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/ffmpeg/commands.dart';
 
 void main() {
-  test('Спецсимволы в путях фильтра экранируются', () {
+  test('Windows-путь превращается в понятный ffmpeg вид', () {
+    // Обратные слэши внутри фильтра съедаются, поэтому меняем их на прямые,
+    // а двоеточие диска экранируем. Иначе ffmpeg принимает хвост пути
+    // за другую опцию фильтра и вшивание падает.
     expect(escapeFilterArg(r'C:\Users\dev\subs.srt'),
-        r'C\:\\Users\\dev\\subs.srt');
+        r'C\:/Users/dev/subs.srt');
+  });
+
+  test('Кавычка экранируется, обычный путь не портится', () {
     expect(escapeFilterArg("it's.srt"), r"it\'s.srt");
+    expect(escapeFilterArg('/tmp/video/subs.srt'), '/tmp/video/subs.srt');
   });
 
   test('Команда извлечения звука даёт моно 48 кГц', () {

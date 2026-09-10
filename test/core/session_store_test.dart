@@ -82,6 +82,8 @@ void main() {
   });
 
   test('Папка только на чтение — сессия уходит в запасной каталог', () async {
+    // chmod управляет правами только в Unix; на Windows доступ устроен
+    // иначе, и этот сценарий надо проверять отдельно.
     final readOnly = Directory('${tmp.path}/ro')..createSync();
     final video = '${readOnly.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));
@@ -97,5 +99,5 @@ void main() {
     final loaded = await store.load(video,
         const SourceFingerprint(sizeBytes: 100, durationSec: 34.8));
     expect(loaded, isNotNull, reason: 'запасная сессия тоже должна читаться');
-  });
+  }, skip: Platform.isWindows ? 'chmod не управляет доступом на Windows' : null);
 }

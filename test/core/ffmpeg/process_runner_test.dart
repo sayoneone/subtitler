@@ -5,7 +5,7 @@ import 'package:subtitler/core/ffmpeg/process_runner.dart';
 
 void main() {
   late Directory tmp;
-  final runner = ProcessFfmpegRunner();
+  final runner = ProcessFfmpegRunner.fromEnvironment();
 
   setUpAll(() => tmp = Directory.systemTemp.createTempSync('runner_test_'));
   tearDownAll(() => tmp.deleteSync(recursive: true));
