@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -13,6 +15,7 @@ import '../core/ffmpeg/process_runner.dart';
 import '../core/logging.dart';
 import '../core/models.dart';
 import '../core/pipeline/burner.dart';
+import '../core/pipeline/language_detector.dart';
 import '../core/pipeline/pipeline.dart';
 import '../core/session_store.dart';
 import '../core/srt.dart';
@@ -44,6 +47,8 @@ class DebugController extends ChangeNotifier {
   Session? session;
   PipelineProgress? progress;
   String? burnedPath;
+  LanguageVerdict? languageVerdict;
+  Timer? _saveDebounce;
 
   bool busy = false;
   bool _cancelRequested = false;
@@ -76,6 +81,14 @@ class DebugController extends ChangeNotifier {
     }
     notifyListeners();
   }
+
+  /// Общие настройки сети. Без явных таймаутов зависший запрос подвесил бы
+  /// весь прогон, и отменить его было бы нечем.
+  static Dio newDio() => Dio(BaseOptions(
+        connectTimeout: const Duration(seconds: 15),
+        sendTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 60),
+      ));
 
   Future<void> detectFfmpeg() async {
     ffmpeg = await FfmpegLocator.locate(
@@ -141,7 +154,7 @@ class DebugController extends ChangeNotifier {
     log.redact(apiKey);
     log.info('Проверка ключа (${apiKey.length} символов)');
 
-    final dio = Dio();
+    final dio = newDio();
     // 1) Перевод — самая дешёвая проверка.
     try {
       final result = await TranslateClient(dio: dio, apiKey: apiKey)
@@ -181,11 +194,23 @@ class DebugController extends ChangeNotifier {
       log.error('Распознавание недоступно: $e');
     }
 
-    if (sttCheck == CheckState.ok && translateCheck == CheckState.ok) {
-      await _storage.write(key: _keyStorageName, value: apiKey);
-      log.info('Ключ сохранён в хранилище системы');
-    }
+    // Показать результат проверки НАДО до записи в хранилище: обращение к
+    // Связке ключей macOS может ждать разрешения пользователя сколько угодно,
+    // и индикатор всё это время висел бы в состоянии «проверяется».
     notifyListeners();
+
+    if (sttCheck == CheckState.ok && translateCheck == CheckState.ok) {
+      try {
+        await _storage
+            .write(key: _keyStorageName, value: apiKey)
+            .timeout(const Duration(seconds: 20));
+        log.info('Ключ сохранён в хранилище системы');
+      } catch (e) {
+        log.warn('Ключ проверен, но сохранить его не удалось: $e. '
+            'В этом запуске он работает, при следующем — введите заново.');
+      }
+      notifyListeners();
+    }
   }
 
   /// Полсекунды тишины в OggOpus — нужен только чтобы проверить, что
@@ -214,7 +239,7 @@ class DebugController extends ChangeNotifier {
     final video = videoPath!;
     final work = runtime?.workDirFor(video) ??
         Directory.systemTemp.createTempSync('subtitler_').path;
-    final dio = Dio();
+    final dio = newDio();
 
     try {
       final pipeline = Pipeline(
@@ -226,17 +251,19 @@ class DebugController extends ChangeNotifier {
         log: log,
       );
 
-      // Продолжаем прошлую сессию, если она про это же видео —
-      // так повторный запуск не оплачивает распознавание заново.
-      final previous = await SessionStore(
-        fallbackDir: runtime?.supportDir ?? work,
-      ).load(
-        video,
-        SourceFingerprint(
-          sizeBytes: File(video).lengthSync(),
-          durationSec: await _runner().probeDuration(video),
-        ),
-      );
+      // Продолжаем то, что уже есть: сессию из определения языка либо
+      // сохранённую на диске. Так повторный запуск не оплачивает
+      // распознавание заново.
+      final previous = session ??
+          await SessionStore(
+            fallbackDir: runtime?.supportDir ?? work,
+          ).load(
+            video,
+            SourceFingerprint(
+              sizeBytes: File(video).lengthSync(),
+              durationSec: await _runner().probeDuration(video),
+            ),
+          );
 
       session = await pipeline.process(
         videoPath: video,
@@ -263,6 +290,126 @@ class DebugController extends ChangeNotifier {
     _cancelRequested = true;
     log.warn('Запрошена отмена');
     notifyListeners();
+  }
+
+  /// Прогоняет пару реплик через обе модели и предлагает язык.
+  /// Решение остаётся за человеком: когда обе модели дают невнятицу,
+  /// приложение так и говорит, а не выбирает наугад.
+  Future<void> detectLanguage() async {
+    if (busy || videoPath == null || apiKey.isEmpty || ffmpeg == null) return;
+    busy = true;
+    lastError = null;
+    languageVerdict = null;
+    notifyListeners();
+
+    final video = videoPath!;
+    final work = runtime?.workDirFor(video) ??
+        Directory.systemTemp.createTempSync('subtitler_').path;
+    final dio = newDio();
+
+    try {
+      final probe = await Pipeline(
+        runner: _runner(),
+        stt: SpeechKitClient(dio: dio, apiKey: apiKey),
+        translate: TranslateClient(dio: dio, apiKey: apiKey),
+        store: SessionStore(fallbackDir: runtime?.supportDir ?? work),
+        workDir: work,
+        log: log,
+      ).detectLanguage(
+        videoPath: video,
+        onProgress: (p) {
+          progress = p;
+          notifyListeners();
+        },
+      );
+      languageVerdict = probe.verdict;
+      session = probe.session;
+      if (probe.verdict.confident) lang = probe.verdict.best.lang;
+    } catch (e) {
+      lastError = '$e';
+      log.error('Определение языка не удалось: $e');
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  /// Правка реплики прямо в приложении. Сессия и оба .srt переписываются
+  /// с небольшой задержкой, чтобы не дёргать диск на каждую букву.
+  void updateCue(int cueIndex, {String? orig, String? ru}) {
+    final current = session;
+    if (current == null) return;
+    session = current.copyWith(
+      cues: current.cues
+          .map((c) => c.index == cueIndex
+              ? c.copyWith(orig: orig ?? c.orig, ru: ru ?? c.ru)
+              : c)
+          .toList(),
+    );
+    notifyListeners();
+
+    _saveDebounce?.cancel();
+    _saveDebounce = Timer(const Duration(milliseconds: 700), () async {
+      await _writeSrt();
+      final s = session;
+      if (s != null && runtime != null) {
+        await SessionStore(fallbackDir: runtime!.supportDir).save(s);
+      }
+    });
+  }
+
+  /// Ставит ffmpeg со всеми нужными кодеками через Homebrew.
+  /// Ничего не скачиваем сами: пакет ставится обычным менеджером пакетов,
+  /// а весь вывод виден в журнале.
+  Future<void> installFfmpeg() async {
+    if (busy) return;
+    busy = true;
+    lastError = null;
+    notifyListeners();
+
+    try {
+      final brew = ['/opt/homebrew/bin/brew', '/usr/local/bin/brew']
+          .firstWhere((p) => File(p).existsSync(), orElse: () => '');
+      if (brew.isEmpty) {
+        lastError = 'Homebrew не найден. Установите его с brew.sh, '
+            'затем нажмите «Установить ffmpeg» снова.';
+        log.error(lastError!);
+        return;
+      }
+
+      log.info('Устанавливаем ffmpeg-full через Homebrew — это займёт '
+          'несколько минут, окно можно не закрывать');
+      final process = await Process.start(brew, ['install', 'ffmpeg-full']);
+      process.stdout
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) => log.debug('brew: $line'));
+      process.stderr
+          .transform(utf8.decoder)
+          .transform(const LineSplitter())
+          .listen((line) => log.debug('brew: $line'));
+
+      final code = await process.exitCode;
+      if (code == 0) {
+        log.info('Homebrew закончил успешно');
+      } else {
+        lastError = 'Установка вернула код $code — подробности в журнале';
+        log.error(lastError!);
+      }
+      await detectFfmpeg();
+    } catch (e) {
+      lastError = '$e';
+      log.error('Установка ffmpeg не удалась: $e');
+    } finally {
+      busy = false;
+      notifyListeners();
+    }
+  }
+
+  @override
+  void dispose() {
+    _saveDebounce?.cancel();
+    super.dispose();
   }
 
   String get _base =>

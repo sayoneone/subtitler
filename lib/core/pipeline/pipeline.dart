@@ -9,6 +9,7 @@ import '../ffmpeg/ffmpeg_runner.dart';
 import '../logging.dart';
 import '../models.dart';
 import '../session_store.dart';
+import 'language_detector.dart';
 import 'segment_cutter.dart';
 import 'silence_scanner.dart';
 import 'validation.dart';
@@ -33,6 +34,15 @@ class NoSpeechFoundException implements Exception {
   const NoSpeechFoundException();
   @override
   String toString() => 'Речь в ролике не обнаружена';
+}
+
+/// Результат проверки языка: что показали обе модели и готовая сессия,
+/// в которой пробные распознавания уже сохранены — платить за них
+/// повторно не придётся.
+class LanguageProbe {
+  final LanguageVerdict verdict;
+  final Session session;
+  const LanguageProbe({required this.verdict, required this.session});
 }
 
 /// Собирает весь путь от видеофайла до готовых реплик с переводом.
@@ -123,6 +133,98 @@ class Pipeline {
         'Сессия: $saved');
     report(const PipelineProgress(PipelineStage.done));
     return session;
+  }
+
+  /// Прогоняет несколько самых длинных реплик через ОБЕ модели и сравнивает
+  /// результат.
+  ///
+  /// Язык всё равно подтверждает человек: когда данных мало, обе модели дают
+  /// одинаково невнятный текст, и «уверенное» решение было бы выдумкой.
+  /// Зато распознанное здесь не пропадает — оно уходит в сессию.
+  Future<LanguageProbe> detectLanguage({
+    required String videoPath,
+    int probeSegments = 2,
+    void Function(PipelineProgress)? onProgress,
+    Future<void> Function(Duration)? sleep,
+  }) async {
+    final report = onProgress ?? (_) {};
+    Directory(workDir).createSync(recursive: true);
+
+    final duration = await runner.probeDuration(videoPath);
+    final fingerprint = SourceFingerprint(
+      sizeBytes: File(videoPath).lengthSync(),
+      durationSec: duration,
+    );
+
+    final base = await _prepare(
+      videoPath: videoPath,
+      lang: kSupportedSttLangs.first,
+      duration: duration,
+      fingerprint: fingerprint,
+      report: report,
+    );
+
+    // Берём самые длинные реплики: на них у моделей больше шансов
+    // проявить различия.
+    final byLength = [...base.cues]
+      ..sort((a, b) => b.range.duration.compareTo(a.range.duration));
+    final probes = byLength.take(probeSegments).toList();
+    log.info('Определение языка по ${probes.length} репликам '
+        '(${probes.map((c) => c.index).join(', ')})');
+
+    final textByLang = <String, String>{};
+    final recognized = <String, Map<int, String>>{};
+    var done = 0;
+
+    for (final lang in kSupportedSttLangs) {
+      final parts = <String>[];
+      for (final cue in probes) {
+        report(PipelineProgress(PipelineStage.recognizing,
+            done: done, total: probes.length * kSupportedSttLangs.length));
+        final bytes = File(_segmentPath(cue.index)).readAsBytesSync();
+        try {
+          final text = await withRetry(
+            () => stt.recognize(oggBytes: bytes, lang: lang),
+            sleep: sleep,
+          );
+          parts.add(text);
+          (recognized[lang] ??= {})[cue.index] = text;
+          log.info('[$lang] реплика ${cue.index}: '
+              '${text.isEmpty ? '(пусто)' : text}');
+        } on AuthException {
+          rethrow;
+        } on ApiException catch (e) {
+          log.warn('[$lang] реплика ${cue.index}: ошибка ($e)');
+        }
+        done++;
+      }
+      textByLang[lang] = parts.join(' ');
+    }
+
+    final verdict = judgeLanguage(textByLang);
+    log.info(verdict.confident
+        ? 'Похоже на ${verdict.best.lang} '
+            '(отрыв ${verdict.gap.toStringAsFixed(2)})'
+        : 'Уверенно определить язык не вышло '
+            '(отрыв ${verdict.gap.toStringAsFixed(2)}) — выбирайте сами');
+
+    // Сохраняем то, что уже распознали выигравшей моделью.
+    final winner = verdict.best.lang;
+    final byIndex = recognized[winner] ?? const <int, String>{};
+    final session = base.copyWith(
+      lang: winner,
+      cues: base.cues.map((cue) {
+        final text = byIndex[cue.index];
+        if (text == null) return cue;
+        return cue.copyWith(
+          orig: text,
+          status: text.trim().isEmpty ? CueStatus.empty : CueStatus.ok,
+        );
+      }).toList(),
+    );
+    await store.save(session);
+    report(const PipelineProgress(PipelineStage.done));
+    return LanguageProbe(verdict: verdict, session: session);
   }
 
   /// Извлекает звук, ищет паузы, режет сегменты и заводит пустые реплики.

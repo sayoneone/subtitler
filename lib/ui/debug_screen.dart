@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../app/debug_controller.dart';
 import '../core/logging.dart';
 import '../core/models.dart';
+import '../core/pipeline/language_detector.dart';
 import '../core/pipeline/pipeline.dart';
 
 const _videoTypes = XTypeGroup(
@@ -130,6 +131,19 @@ class _DebugScreenState extends State<DebugScreen> {
           ),
         ]),
       ],
+      if (info == null || !info.hasLibass) ...[
+        const SizedBox(height: 8),
+        FilledButton.icon(
+          onPressed: c.busy ? null : c.installFfmpeg,
+          icon: const Icon(Icons.download),
+          label: const Text('Установить ffmpeg (Homebrew)'),
+        ),
+        const Text(
+          'Ставится обычным менеджером пакетов, весь вывод виден в журнале. '
+          'В сборках под Windows и Android ffmpeg уже внутри приложения.',
+          style: TextStyle(fontSize: 11, color: Colors.grey),
+        ),
+      ],
       const SizedBox(height: 10),
       Row(children: [
         Expanded(
@@ -145,10 +159,12 @@ class _DebugScreenState extends State<DebugScreen> {
         ),
         const SizedBox(width: 8),
         FilledButton.tonal(
-          onPressed: () {
-            c.ffmpegOverride = _ffmpegField.text;
-            c.detectFfmpeg();
-          },
+          onPressed: c.busy
+              ? null
+              : () {
+                  c.ffmpegOverride = _ffmpegField.text;
+                  c.detectFfmpeg();
+                },
           child: const Text('Найти'),
         ),
       ]),
@@ -254,7 +270,14 @@ class _DebugScreenState extends State<DebugScreen> {
           onSelectionChanged:
               c.busy ? null : (s) => c.setLang(s.first),
         ),
+        const SizedBox(width: 8),
+        OutlinedButton.icon(
+          onPressed: c.canRun ? c.detectLanguage : null,
+          icon: const Icon(Icons.travel_explore, size: 18),
+          label: const Text('Определить'),
+        ),
       ]),
+      if (c.languageVerdict != null) _verdictBlock(c.languageVerdict!),
       const SizedBox(height: 12),
       Row(children: [
         FilledButton.icon(
@@ -271,6 +294,63 @@ class _DebugScreenState extends State<DebugScreen> {
         if (c.progress != null) Expanded(child: Text(_progressText(c.progress!))),
       ]),
     ]);
+  }
+
+  /// Показывает, что услышала каждая модель. Даже когда приложение уверено,
+  /// оба варианта остаются на виду: язык подтверждает человек.
+  Widget _verdictBlock(LanguageVerdict verdict) {
+    String title(String lang) =>
+        lang == 'tr-TR' ? 'Турецкая модель' : 'Узбекская модель';
+
+    return Container(
+      margin: const EdgeInsets.only(top: 10),
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: Colors.indigo.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text(
+          verdict.confident
+              ? 'Похоже на ${title(verdict.best.lang).toLowerCase()} — '
+                  'выбран этот язык. Проверьте по тексту ниже.'
+              : 'Уверенно определить не вышло: обе модели дали похожий по '
+                  'качеству текст. Выберите язык сами.',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: verdict.confident ? Colors.indigo : Colors.orange.shade900,
+          ),
+        ),
+        const SizedBox(height: 8),
+        for (final candidate in verdict.candidates)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              SizedBox(
+                width: 130,
+                child: Text(
+                  title(candidate.lang),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: candidate.lang == c.lang
+                        ? FontWeight.bold
+                        : FontWeight.normal,
+                  ),
+                ),
+              ),
+              Expanded(
+                child: SelectableText(
+                  candidate.text.trim().isEmpty
+                      ? '(ничего не распозналось)'
+                      : candidate.text,
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ),
+            ]),
+          ),
+      ]),
+    );
   }
 
   String _progressText(PipelineProgress p) {
@@ -320,14 +400,80 @@ class _DebugScreenState extends State<DebugScreen> {
             style: const TextStyle(color: Colors.green, fontSize: 12)),
       ],
       const SizedBox(height: 12),
-      _CueTable(cues: session.cues),
+      const Text(
+        'Текст можно править прямо здесь: оба .srt перезаписываются сами, '
+        'а после правок нажмите «Вшить субтитры» заново.',
+        style: TextStyle(fontSize: 12, color: Colors.grey),
+      ),
+      const SizedBox(height: 6),
+      _CueTable(cues: session.cues, onEdit: c.updateCue),
     ]);
   }
 }
 
 class _CueTable extends StatelessWidget {
   final List<Cue> cues;
-  const _CueTable({required this.cues});
+  final void Function(int index, {String? orig, String? ru}) onEdit;
+  const _CueTable({required this.cues, required this.onEdit});
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 320,
+      child: ListView.separated(
+        itemCount: cues.length,
+        separatorBuilder: (_, _) => const Divider(height: 1),
+        itemBuilder: (context, i) => _CueRow(
+          key: ValueKey(cues[i].index),
+          cue: cues[i],
+          onEdit: onEdit,
+        ),
+      ),
+    );
+  }
+}
+
+/// Строка таблицы с правкой текста.
+///
+/// Поле живёт своей жизнью и синхронизируется с моделью только когда в нём
+/// нет курсора: иначе перерисовка после каждого нажатия сбрасывала бы
+/// позицию курсора в начало.
+class _CueRow extends StatefulWidget {
+  final Cue cue;
+  final void Function(int index, {String? orig, String? ru}) onEdit;
+  const _CueRow({super.key, required this.cue, required this.onEdit});
+
+  @override
+  State<_CueRow> createState() => _CueRowState();
+}
+
+class _CueRowState extends State<_CueRow> {
+  late final TextEditingController _orig =
+      TextEditingController(text: widget.cue.orig);
+  late final TextEditingController _ru =
+      TextEditingController(text: widget.cue.ru);
+  final _origFocus = FocusNode();
+  final _ruFocus = FocusNode();
+
+  @override
+  void didUpdateWidget(covariant _CueRow old) {
+    super.didUpdateWidget(old);
+    if (!_origFocus.hasFocus && widget.cue.orig != _orig.text) {
+      _orig.text = widget.cue.orig;
+    }
+    if (!_ruFocus.hasFocus && widget.cue.ru != _ru.text) {
+      _ru.text = widget.cue.ru;
+    }
+  }
+
+  @override
+  void dispose() {
+    _orig.dispose();
+    _ru.dispose();
+    _origFocus.dispose();
+    _ruFocus.dispose();
+    super.dispose();
+  }
 
   String _time(double v) {
     final m = (v ~/ 60).toString().padLeft(2, '0');
@@ -337,49 +483,62 @@ class _CueTable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: 260,
-      child: ListView.separated(
-        itemCount: cues.length,
-        separatorBuilder: (_, _) => const Divider(height: 1),
-        itemBuilder: (context, i) {
-          final cue = cues[i];
-          final flagged = cue.flags.isNotEmpty;
-          return Container(
-            color: flagged ? Colors.amber.withValues(alpha: 0.18) : null,
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
-            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(
-                width: 96,
-                child: Text(
-                  '${cue.index}. ${_time(cue.range.start)}',
-                  style: const TextStyle(fontSize: 11, color: Colors.grey),
-                ),
+    final cue = widget.cue;
+    final flagged = cue.flags.isNotEmpty;
+
+    return Container(
+      color: flagged ? Colors.amber.withValues(alpha: 0.18) : null,
+      padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        SizedBox(
+          width: 104,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '${cue.index}. ${_time(cue.range.start)}',
+              style: const TextStyle(fontSize: 11, color: Colors.grey),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            TextField(
+              controller: _orig,
+              focusNode: _origFocus,
+              maxLines: null,
+              style: const TextStyle(fontSize: 12, color: Colors.black54),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'оригинал — речи нет',
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
               ),
-              Expanded(
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  SelectableText(
-                    cue.orig.isEmpty ? '— речи нет —' : cue.orig,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: cue.orig.isEmpty ? Colors.grey : null,
-                    ),
-                  ),
-                  if (cue.ru.isNotEmpty)
-                    SelectableText(cue.ru,
-                        style: const TextStyle(
-                            fontSize: 13, fontWeight: FontWeight.w500)),
-                ]),
+              onChanged: (v) => widget.onEdit(cue.index, orig: v),
+            ),
+            TextField(
+              controller: _ru,
+              focusNode: _ruFocus,
+              maxLines: null,
+              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+              decoration: const InputDecoration(
+                isDense: true,
+                border: InputBorder.none,
+                hintText: 'перевод — впишите сами',
+                contentPadding: EdgeInsets.symmetric(vertical: 4),
               ),
-              SizedBox(
-                width: 70,
-                child: Text(cue.status.name,
-                    style: const TextStyle(fontSize: 11, color: Colors.grey)),
-              ),
-            ]),
-          );
-        },
-      ),
+              onChanged: (v) => widget.onEdit(cue.index, ru: v),
+            ),
+          ]),
+        ),
+        SizedBox(
+          width: 70,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(cue.status.name,
+                style: const TextStyle(fontSize: 11, color: Colors.grey)),
+          ),
+        ),
+      ]),
     );
   }
 }
