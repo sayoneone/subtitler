@@ -8,7 +8,7 @@ import 'package:subtitler/core/pipeline/language_detector.dart';
 void main() {
   group('Оценка отдельного варианта', () {
     test('Турецкий текст со «своими» буквами получает высокую оценку', () {
-      const text = 'makine *** su yüzeye çıkıyor öyle *** şoför';
+      const text = 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur';
       expect(scoreLanguage(text, 'tr-TR'), greaterThan(0.5));
     });
 
@@ -46,7 +46,7 @@ void main() {
 
     test('Вторая длинная реплика: тоже турецкий', () {
       final verdict = judgeLanguage({
-        'tr-TR': 'makine *** su yüzeye çıkıyor öyle ***',
+        'tr-TR': 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur',
         'uz-UZ': 'makina durganda su yuzeye tikiyor oyle '
             'gorunuyor gorunuyor gorunuyor gorunuyor',
       });
