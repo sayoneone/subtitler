@@ -146,6 +146,18 @@ jobs:
       - name: Сборка APK
         run: flutter build apk --release
 
+      # Разрешение на интернет Flutter кладёт только в отладочный манифест.
+      # Без него релизный APK не может выйти в сеть — а это всё приложение.
+      - name: Проверить разрешение на интернет
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt2 | sort -V | tail -1)
+          if ! "$AAPT" dump permissions build/app/outputs/flutter-apk/app-release.apk \
+               | grep -q 'android.permission.INTERNET'; then
+            echo "В релизном APK нет разрешения INTERNET — приложение будет без сети"
+            exit 1
+          fi
+          echo "Разрешение INTERNET на месте"
+
       - name: Проверить, что архитектура одна
         run: |
           ABIS=$(unzip -l build/app/outputs/flutter-apk/app-release.apk \

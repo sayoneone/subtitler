@@ -1,4 +1,13 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!--
+      Без этого разрешения релизная сборка не может выйти в сеть вообще:
+      Flutter добавляет INTERNET только в отладочный манифест, и приложение
+      молча падает на каждом обращении к распознаванию и переводу.
+      Других разрешений намеренно нет: видео выбирается системным диалогом,
+      который доступа к хранилищу не требует.
+    -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="subtitler"
         android:name="${applicationName}"
