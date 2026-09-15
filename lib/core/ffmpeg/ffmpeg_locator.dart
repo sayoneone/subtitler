@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import '../logging.dart';
 import 'process_runner.dart';
 
@@ -31,6 +33,8 @@ class FfmpegInfo {
 /// полагаться на голое имя `ffmpeg` нельзя — перебираем известные места.
 /// Сборка с libass приоритетнее: без неё не работает вшивание субтитров.
 class FfmpegLocator {
+  /// Куда ffmpeg кладут пакетные менеджеры. Это машина разработчика: на
+  /// служебном ПК следователя ничего из этого нет и быть не может.
   static const List<String> knownPaths = [
     // Сборка с libass из homebrew-core (keg-only, не подменяет системную).
     '/opt/homebrew/opt/ffmpeg-full/bin/ffmpeg',
@@ -40,15 +44,58 @@ class FfmpegLocator {
     '/usr/bin/ffmpeg',
   ];
 
-  static List<String> candidates({String? override}) {
-    final env = Platform.environment[kFfmpegPathEnv];
+  /// Бинарники, распакованные вместе с приложением.
+  ///
+  /// Переносимая сборка под Windows кладёт ffmpeg в `tools/ffmpeg/` рядом с
+  /// `subtitler.exe` — так собирает `.github/workflows/build.yml`. Искать его
+  /// там обязательно: приложение раздаётся ZIP-архивом на служебный ПК, где
+  /// нет ни прав администратора, ни установщиков, ни ffmpeg в PATH. Всё, на
+  /// что можно опереться, лежит в самой папке приложения.
+  ///
+  /// [appDir] и [windows] подменяются в тестах: перебор путей должен
+  /// проверяться одинаково на любой машине, где идут тесты.
+  static List<String> bundledPaths({String? appDir, bool? windows}) {
+    final onWindows = windows ?? Platform.isWindows;
+    // Явный контекст путей, а не платформенный: иначе тест Windows-раскладки
+    // собирал бы разделители хозяйской ОС и падал бы на Linux-раннере.
+    final context = onWindows ? p.windows : p.posix;
+    final dir = appDir ?? context.dirname(Platform.resolvedExecutable);
+    final name = onWindows ? 'ffmpeg.exe' : 'ffmpeg';
+    return [
+      context.join(dir, 'tools', 'ffmpeg', name),
+      context.join(dir, name),
+    ];
+  }
+
+  /// [env], [appDir] и [windows] подменяются в тестах.
+  static List<String> candidates({
+    String? override,
+    Map<String, String>? env,
+    String? appDir,
+    bool? windows,
+  }) {
+    final onWindows = windows ?? Platform.isWindows;
+    final fromEnv = (env ?? Platform.environment)[kFfmpegPathEnv];
     return [
       if (override != null && override.trim().isNotEmpty) override.trim(),
-      if (env != null && env.isNotEmpty) env,
-      ...knownPaths,
+      if (fromEnv != null && fromEnv.isNotEmpty) fromEnv,
+      // Своя сборка идёт раньше системной: приложение не должно зависеть от
+      // того, что установлено на машине пользователя.
+      ...bundledPaths(appDir: appDir, windows: windows),
+      // Пути пакетных менеджеров бывают только в Unix. На Windows их перебор
+      // — это пять бессмысленных строк в журнале перед словом «не найден».
+      if (!onWindows) ...knownPaths,
       'ffmpeg', // последняя надежда: вдруг PATH всё-таки есть
     ];
   }
+
+  /// Что советовать, когда пригодного ffmpeg нет. Совет зависит от платформы:
+  /// Homebrew на служебном ПК не существует, и чинить там нужно не установку,
+  /// а распаковку архива.
+  static String get _hint => Platform.isWindows
+      ? 'В переносимой сборке ffmpeg лежит в tools\\ffmpeg рядом с '
+          'subtitler.exe — проверьте, что архив распакован целиком.'
+      : 'Поставьте сборку с libass: brew install ffmpeg-full';
 
   static String _probeFor(String ffmpegPath) {
     if (!ffmpegPath.contains(Platform.pathSeparator)) return 'ffprobe';
@@ -99,10 +146,9 @@ class FfmpegLocator {
     if (fallback != null) {
       journal.warn(
           'Используется ffmpeg без libass (${fallback.ffmpegPath}): '
-          'вшивание субтитров будет недоступно. Поставьте сборку с libass: '
-          'brew install ffmpeg-full');
+          'вшивание субтитров будет недоступно. $_hint');
     } else {
-      journal.error('ffmpeg не найден ни в одном из известных мест');
+      journal.error('ffmpeg не найден ни в одном из известных мест. $_hint');
     }
     return fallback;
   }
