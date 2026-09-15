@@ -71,6 +71,31 @@ jobs:
           Copy-Item -Recurse build/windows/x64/runner/Release/* dist/
           Copy-Item -Recurse assets/fonts dist/fonts
 
+          # ffmpeg_kit_flutter_new нужен только на Android. На Windows работа
+          # идёт через видимый tools/ffmpeg/ffmpeg.exe, LibFfmpegRunner там не
+          # создаётся вовсе — но плагин во время сборки СКАЧИВАЕТ собственный
+          # полный ffmpeg и кладёт его рядом с exe. Это 117 МБ, которые никто
+          # не открывает, и бинарь, который никто не проверял: ровно то, от
+          # чего мы ушли, выбрав пиновую сборку gyan.dev.
+          # Удаляем по источнику, а не по списку имён: список версия от версии
+          # меняется, а папка плагина знает его точно. Саму заглушку
+          # ffmpeg_kit_flutter_new_plugin.dll трогать нельзя — её импортирует
+          # subtitler.exe, и без неё приложение не стартует вообще.
+          $kitBin = 'build/windows/x64/plugins/ffmpeg_kit_flutter_new/ffmpeg-kit/bin'
+          if (Test-Path $kitBin) {
+            $freed = 0
+            foreach ($dll in Get-ChildItem $kitBin -Filter *.dll) {
+              $victim = Join-Path dist $dll.Name
+              if (Test-Path $victim) {
+                $freed += (Get-Item $victim).Length
+                Remove-Item $victim -Force
+              }
+            }
+            Write-Host ("Выброшена неиспользуемая сборка ffmpeg-kit: {0:N1} МБ" -f ($freed / 1MB))
+          } else {
+            Write-Host "Папка ffmpeg-kit не найдена — проверка размера ниже поймает, если груз остался"
+          }
+
           # Библиотеки времени выполнения MSVC кладём рядом с exe: на
           # служебных ПК без прав администратора нет ни установщика
           # Visual C++, ни возможности его поставить.
@@ -91,14 +116,23 @@ jobs:
 
           # Проверка: приложение не должно зависеть от того, что стоит
           # на машине следователя.
+          # ffmpeg_kit_flutter_new_plugin.dll в списке не по ошибке: его
+          # импортирует сам exe, и без него приложение молча не запускается.
           foreach ($needed in @('subtitler.exe','flutter_windows.dll','msvcp140.dll',
                                 'vcruntime140.dll','vcruntime140_1.dll',
+                                'ffmpeg_kit_flutter_new_plugin.dll',
                                 'tools/ffmpeg/ffmpeg.exe','fonts/NotoSans-Regular.ttf')) {
             if (-not (Test-Path (Join-Path dist $needed))) { throw "В сборке нет $needed" }
           }
 
           $mb = [math]::Round((Get-ChildItem dist -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
           Write-Host "Размер распакованной папки: $mb МБ"
+          # Размер — тоже проверка. Если лишняя сборка ffmpeg вернётся в архив,
+          # папка вырастет почти вдвое, и узнать об этом надо здесь, а не из
+          # жалоб на скачивание 250 МБ по служебной сети.
+          if ($mb -gt 180) {
+            throw "Папка выросла до $mb МБ — похоже, в неё вернулась лишняя сборка ffmpeg"
+          }
           Compress-Archive -Path dist/* -DestinationPath subtitler-windows-x64.zip
 
       - uses: actions/upload-artifact@v4

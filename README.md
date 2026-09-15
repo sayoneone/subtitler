@@ -32,7 +32,7 @@
 
 ```bash
 flutter pub get
-flutter test          # 105 тестов
+flutter test          # 141 тест
 flutter build apk --release          # Android, ~60 МБ, arm64
 flutter build macos --release        # стенд для отладки
 ```
@@ -74,7 +74,7 @@ export SUBTITLER_FFPROBE="$(brew --prefix ffmpeg-full)/bin/ffprobe"
 
 | Платформа | Что скачивать | Размер |
 |---|---|---|
-| Windows 10/11 x64 | `subtitler-windows-x64.zip` — распаковать и запустить `subtitler.exe` | ~96 МБ |
+| Windows 10/11 x64 | `subtitler-windows-x64.zip` — распаковать и запустить `subtitler.exe` | ~49 МБ |
 | Android 8+, arm64 | `app-release.apk` | ~60 МБ |
 
 Устанавливать ничего не нужно: ffmpeg, шрифт и библиотеки Visual C++ лежат
@@ -83,6 +83,6 @@ keystore.
 
 ## Статус
 
-Ядро готово и покрыто тестами (109 тестов), отладочный стенд работает на
+Ядро готово и покрыто тестами (141 тест), отладочный стенд работает на
 macOS, Android и Windows. Впереди: интерфейс следователя — плеер
 предпросмотра и приём видео из WhatsApp.
