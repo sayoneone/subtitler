@@ -207,3 +207,61 @@ jobs:
           name: subtitler-android
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
+
+  # Постоянная ссылка, которую можно отправить следователю. Артефакты сборки
+  # для этого не годятся: GitHub отдаёт их только вошедшим в аккаунт, и живут
+  # они две недели. Релиз по тегу v* скачивается без аккаунта и не исчезает.
+  #
+  # Отдельная задача, и право записи есть только у неё: шаги сборки выполняют
+  # сторонний код плагинов, и давать им запись в репозиторий незачем.
+  #
+  # В релиз идёт только Windows-архив. APK пока подписан отладочным ключом —
+  # раздавать его рано, это записано и в README.
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: subtitler-windows-x64
+          path: release
+
+      - name: Опубликовать релиз
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ ! -f release/subtitler-windows-x64.zip ]; then
+            echo "Нет архива для релиза"
+            exit 1
+          fi
+
+          # Текст для человека, который откроет страницу релиза. Каждый шаг
+          # здесь — место, где без подсказки застревают.
+          cat > notes.md <<'EOF'
+          ## Как запустить на Windows 10/11
+
+          1. Скачайте **subtitler-windows-x64.zip** (ниже, в разделе Assets).
+          2. Распакуйте архив **целиком** в любую папку, например на рабочий стол.
+             Запускать программу прямо из архива нельзя: ей нужны файлы,
+             которые лежат рядом с ней.
+          3. Откройте папку и запустите **subtitler.exe**. Устанавливать ничего
+             не нужно, права администратора не нужны.
+          4. Если появится окно «Система Windows защитила ваш компьютер» —
+             нажмите «Подробнее», затем «Выполнить в любом случае». Программа не
+             подписана сертификатом, поэтому Windows предупреждает о ней при
+             первом запуске.
+          5. Введите свой API-ключ Яндекс Облака. Он хранится только на этом
+             компьютере.
+          EOF
+
+          # --verify-tag: публикуем только к уже отправленному тегу и никогда
+          # не создаём новый.
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --verify-tag \
+            --title "Subtitler $GITHUB_REF_NAME" \
+            --notes-file notes.md \
+            release/subtitler-windows-x64.zip
