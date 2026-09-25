@@ -39,14 +39,22 @@ class DebugLog {
 
   Stream<LogEntry> get stream => _controller.stream;
 
+  /// Куда откладывается журнал прошлого запуска: рядом с [path].
+  static String previousPath(String path) =>
+      path.endsWith('.log')
+          ? '${path.substring(0, path.length - 4)}.prev.log'
+          : '$path.prev';
+
   /// Дублирует журнал в файл, чтобы разбирать проблему можно было и после
-  /// закрытия приложения. Старый файл перезаписывается: интересен последний
-  /// запуск, а не история за месяц.
+  /// закрытия приложения. Хранятся два запуска — текущий и прошлый: история
+  /// за месяц не нужна, а вот журнал сбоя нужен и после перезапуска, ведь
+  /// первое, что человек делает при ошибке, — перезапускает программу.
   void attachFile(String path) {
     try {
       _fileSink?.close();
       final file = File(path);
       file.parent.createSync(recursive: true);
+      _keepPrevious(file);
       _fileSink = file.openWrite(mode: FileMode.write);
       filePath = path;
       for (final entry in entries) {
@@ -57,6 +65,27 @@ class DebugLog {
       filePath = null;
       warn('Не удалось открыть файл журнала $path: $e');
     }
+  }
+
+  void _keepPrevious(File file) {
+    if (!file.existsSync()) return;
+    try {
+      final previous = File(previousPath(file.path));
+      if (previous.existsSync()) previous.deleteSync();
+      file.renameSync(previous.path);
+    } catch (_) {
+      // Файл держит второй экземпляр приложения — тогда просто
+      // перезапишем текущий, журнал всё равно важнее его истории.
+    }
+  }
+
+  /// Дописывает всё в файл и закрывает его.
+  Future<void> close() async {
+    final sink = _fileSink;
+    _fileSink = null;
+    if (sink == null) return;
+    await sink.flush();
+    await sink.close();
   }
 
   /// Помечает строку как секрет: дальше она нигде не появится в журнале.
