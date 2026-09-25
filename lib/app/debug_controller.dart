@@ -42,6 +42,8 @@ class DebugController extends ChangeNotifier {
   ///
   /// [speechKit] и [translate] — клиенты Яндекса для ключа; из приложения
   /// приходят те же, что у него (AppServices), в тестах — подделки.
+  /// [reveal] показывает файл в Проводнике; по умолчанию —
+  /// [revealInFileManager], в тестах — запись вызовов.
   DebugController({
     this.runtime,
     this.ffmpeg,
@@ -49,6 +51,7 @@ class DebugController extends ChangeNotifier {
     DebugLog? log,
     SpeechKitClient Function(String apiKey)? speechKit,
     TranslateClient Function(String apiKey)? translate,
+    this._reveal,
   })  : log = log ?? DebugLog.instance,
         _speechKit = speechKit ??
             ((key) => SpeechKitClient(dio: newDio(), apiKey: key)),
@@ -57,6 +60,10 @@ class DebugController extends ChangeNotifier {
 
   final SpeechKitClient Function(String apiKey) _speechKit;
   final TranslateClient Function(String apiKey) _translate;
+  final Future<bool> Function(String path)? _reveal;
+
+  Future<bool> _show(String path) =>
+      _reveal?.call(path) ?? revealInFileManager(path, log: log);
 
   /// Удалось ли вообще пользоваться хранилищем ключа.
   bool? storageWorks;
@@ -585,15 +592,19 @@ class DebugController extends ChangeNotifier {
   Future<void> revealOutput() async {
     final target = burnedPath ?? videoPath;
     if (target == null || !canRevealOutput) return;
-    await revealInFileManager(target, log: log);
+    await _show(target);
   }
 
+  /// «Сохранить в файл»: журнал — туда же, куда пишется журнал запуска и
+  /// «Сохранить журнал» ([AppRuntime.logDir]; на Windows — LocalAppData).
+  /// В папке приложения (Roaming) копия уезжала бы на сервер профилей, а
+  /// следующий запуск удалил бы её как журнал прежней версии.
   Future<void> saveLog() async {
-    final dir = runtime?.supportDir ?? Directory.systemTemp.path;
+    final dir = runtime?.logDir ?? Directory.systemTemp.path;
     final file = File(p.join(dir, 'subtitler-debug.log'));
     file.writeAsStringSync(log.asText());
     log.info('Журнал сохранён: ${file.path}');
-    if (canRevealOutput) await revealInFileManager(file.path, log: log);
+    if (canRevealOutput) await _show(file.path);
     notifyListeners();
   }
 }

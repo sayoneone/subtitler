@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:subtitler/app/debug_controller.dart';
 import 'package:subtitler/app/runtime.dart';
 import 'package:subtitler/core/logging.dart';
 
@@ -115,6 +116,61 @@ void main() {
         isEmpty);
     expect(File(p.join(local, 'subtitler.log')).existsSync(), isTrue,
         reason: 'журнал этого запуска — на месте');
+  });
+
+  // Замечание ревью к уборке прежних журналов: «Сохранить в файл»
+  // отладочного стенда по-прежнему писал subtitler-debug.log в папку
+  // приложения (Roaming). Копия журнала уезжала на сервер профилей, а
+  // следующий запуск молча удалял её как журнал 0.1.x — сохранённое для
+  // разработчика пропадало до отправки.
+  test('«Сохранить в файл» стенда кладёт журнал рядом с журналом запуска, '
+      'и следующий запуск его не удаляет', () async {
+    final tmp = Directory.systemTemp.createTempSync('runtime_test_');
+    final log = DebugLog();
+    final next = DebugLog();
+    addTearDown(() async {
+      await log.close();
+      await next.close();
+      tmp.deleteSync(recursive: true);
+    });
+    final roaming = p.join(tmp.path, 'Roaming', 'ru.subtitler', 'subtitler');
+    final local = p.join(tmp.path, 'Local', 'ru.subtitler', 'subtitler');
+    PathProviderPlatform.instance = _FakePaths(roaming, local);
+    final runtime = await AppRuntime.prepare(log: log);
+
+    final revealed = <String>[];
+    final stand = DebugController(
+      runtime: runtime,
+      log: log,
+      reveal: (path) async {
+        revealed.add(path);
+        return true;
+      },
+    );
+    addTearDown(stand.dispose);
+    await stand.saveLog();
+
+    final saved = File(p.join(runtime.logDir, 'subtitler-debug.log'));
+    expect(saved.existsSync(), isTrue,
+        reason: 'журнал — в LocalAppData, рядом с журналом запуска');
+    expect(File(p.join(roaming, 'subtitler-debug.log')).existsSync(), isFalse,
+        reason: 'не в перемещаемом профиле');
+    if (!Platform.isAndroid && !Platform.isIOS) {
+      expect(revealed, [saved.path]);
+    }
+
+    // Программу закрыли и открыли снова. Уборка журналов прежних версий
+    // идёт в фоне; журнал 0.1.x в Roaming показывает, что она прошла.
+    await log.close();
+    final old = File(p.join(roaming, 'subtitler.prev.log'))
+      ..writeAsStringSync('INFO  журнал версии 0.1.1\n');
+    await AppRuntime.prepare(log: next);
+    for (var i = 0; i < 50 && old.existsSync(); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect(old.existsSync(), isFalse, reason: 'уборка прошла');
+    expect(saved.existsSync(), isTrue,
+        reason: 'сохранённый журнал ждёт, пока его отправят');
   });
 
   // Нарезку и SRT для вшивания программа убирает сама, но у недоделанных
