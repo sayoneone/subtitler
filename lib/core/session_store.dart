@@ -100,18 +100,27 @@ class SessionStore {
     return session?.lang == lang ? session : null;
   }
 
-  /// Языки, для которых есть резервная копия: меню «Не тот язык?»
-  /// помечает их как готовые — переключение бесплатное.
-  Future<Set<String>> backupLanguages(
+  /// Все резервные копии этого файла: язык → сессия. Копия может быть
+  /// недоделанной — обработку на этом языке остановили, — поэтому «готово»
+  /// в меню «Не тот язык?» решает не само наличие копии, а её полнота.
+  Future<Map<String, Session>> loadBackups(
     String videoPath,
     SourceFingerprint actual,
   ) async {
-    final found = <String>{};
+    final found = <String, Session>{};
     for (final lang in kLanguageCodes) {
-      if (await loadBackup(videoPath, lang, actual) != null) found.add(lang);
+      final backup = await loadBackup(videoPath, lang, actual);
+      if (backup != null) found[lang] = backup;
     }
     return found;
   }
+
+  /// Языки, для которых есть резервная копия (любая, и недоделанная).
+  Future<Set<String>> backupLanguages(
+    String videoPath,
+    SourceFingerprint actual,
+  ) async =>
+      (await loadBackups(videoPath, actual)).keys.toSet();
 
   /// Смена языка без оплаты: если для [lang] есть резервная копия, она
   /// становится основной сессией, а [current] уходит в свою копию.

@@ -877,6 +877,58 @@ void main() {
       expect(stages.last, AppStage.review);
     });
 
+    test('Недоделанная резервная копия не «готова» и при выборе доделывается',
+        () async {
+      final h = await started();
+      final c = h.controller;
+      final texts = {
+        ...turkishSpeech,
+        'kk-KZ': {
+          1: 'erteñ tañerteñ bazarğa baramız',
+          2: 'jaqsı',
+          3: 'keşke üyge keş kelemin',
+        },
+      };
+      h.stt = ScriptedStt(h.runtime.workDir, texts);
+      final video = h.copyVideo(probeClip);
+      await c.openVideo(video);
+      expect(c.language, 'tr-TR');
+
+      // На казахский (платно) — и «Отмена» на первой же реплике.
+      final gated =
+          GatedStt(ScriptedStt(h.runtime.workDir, texts), gateAt: 1);
+      h.stt = gated;
+      final switching = c.switchLanguage('kk-KZ');
+      await gated.reached;
+      c.cancel();
+      gated.release();
+      await switching;
+      expect(c.stage, AppStage.cancelled);
+      await c.openPartial();
+      expect(c.session!.cues.where((cue) => cue.status == CueStatus.pending),
+          isNotEmpty);
+
+      // Обратно на турецкий — бесплатно; недоделанный казахский ушёл в копию.
+      await c.switchLanguage('tr-TR');
+      expect(c.language, 'tr-TR');
+      final kazakh = c.allLanguageChoices.firstWhere((l) => l.code == 'kk-KZ');
+      expect(kazakh.ready, isFalse,
+          reason: 'ролик на казахском распознан не целиком — «готово» '
+              'было бы неправдой');
+
+      // Снова казахский: остальные реплики распознаются, уже распознанная
+      // повторно не оплачивается.
+      final stt = ScriptedStt(h.runtime.workDir, texts);
+      h.stt = stt;
+      await c.switchLanguage('kk-KZ');
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'kk-KZ');
+      expect(c.session!.cues.map((cue) => cue.status),
+          everyElement(CueStatus.ok));
+      expect(c.session!.cues.every((cue) => cue.ru.startsWith('RU:')), isTrue);
+      expect(stt.calls, [('kk-KZ', 2), ('kk-KZ', 3)]);
+    });
+
     // Дефект 5: в вопросе о языке русский вариант был подписан
     // «Узбекская модель» — подпись не бралась из таблицы языков.
     test('Меню «Не тот язык?»: второй язык первым, названия по-русски',

@@ -159,8 +159,11 @@ class LanguageChoice {
   /// По-русски, из таблицы языков: «узбекский».
   final String name;
 
-  /// На этом языке ролик уже распознан целиком (есть резервная копия):
-  /// переключение бесплатное и мгновенное.
+  /// На этом языке ролик уже распознан целиком (есть полная резервная
+  /// копия): переключение бесплатное и мгновенное. Недоделанная копия
+  /// (обработку на этом языке остановили) готовой не считается: при
+  /// выборе оставшиеся реплики распознаются платно, уже распознанные —
+  /// нет.
   final bool ready;
 
   /// Сколько реплик на этом языке уже оплачено пробами — их при смене
@@ -999,12 +1002,19 @@ class AppController extends ChangeNotifier {
   /// JSON прежний путь, и запись ушла бы в чужую копию вещдока.
   String _videoFor(Session session) => _videoPath ?? session.videoPath;
 
+  /// Готовыми ([LanguageChoice.ready]) считаются только полные копии:
+  /// недоделанная (обработку на том языке остановили) при выборе
+  /// доделывается платно, и «готово — переключить» было бы неправдой.
   Future<void> _refreshBackups() async {
     final session = _session;
     if (session == null) return;
     try {
-      _backupLangs = await _sessionStore!
-          .backupLanguages(_videoFor(session), session.fingerprint);
+      final backups = await _sessionStore!
+          .loadBackups(_videoFor(session), session.fingerprint);
+      _backupLangs = {
+        for (final backup in backups.entries)
+          if (_isComplete(backup.value)) backup.key,
+      };
     } catch (e) {
       log.warn('Не удалось проверить резервные копии: $e');
       _backupLangs = {};
@@ -1055,10 +1065,15 @@ class AppController extends ChangeNotifier {
         isRunnerUp: code == session.langRunnerUp,
       );
 
-  /// «Не тот язык?» → язык [lang]. Если ролик на нём уже распознан —
-  /// бесплатно и сразу (резервная копия). Иначе — платная обработка на
-  /// этапе [AppStage.processing]; текущий вариант с правками уходит в
-  /// резервную копию, и к нему можно вернуться бесплатно.
+  /// «Не тот язык?» → язык [lang]. Если ролик на нём уже распознан
+  /// целиком — бесплатно и сразу (резервная копия). Иначе — платная
+  /// обработка на этапе [AppStage.processing]; текущий вариант с правками
+  /// уходит в резервную копию, и к нему можно вернуться бесплатно.
+  ///
+  /// Недоделанная копия (обработку на [lang] остановили) тоже идёт через
+  /// обработку: ядро восстанавливает её и распознаёт только оставшиеся
+  /// реплики. Открыть её сразу значило бы показать «не распознано» там,
+  /// где человек выбрал язык и ждёт распознанного текста.
   Future<void> switchLanguage(String lang) async {
     final video = _videoPath;
     // Копии ищутся и пишутся по пути открытого видео (см. [_videoFor]).
@@ -1070,9 +1085,14 @@ class AppController extends ChangeNotifier {
     _notice = null;
     _notify();
     Session? restored;
+    Session? backup;
     try {
       await flush();
-      restored = await _sessionStore!.swapWithBackup(current, lang);
+      backup = await _sessionStore!
+          .loadBackup(video, lang, current.fingerprint);
+      if (backup != null && _isComplete(backup)) {
+        restored = await _sessionStore!.swapWithBackup(current, lang);
+      }
       if (restored != null) {
         log.info('Язык: ${current.lang} → $lang из резервной копии, '
             'без запросов');
@@ -1093,7 +1113,10 @@ class AppController extends ChangeNotifier {
       return;
     }
 
-    log.info('Язык: ${current.lang} → $lang — распознаём заново');
+    log.info(backup == null
+        ? 'Язык: ${current.lang} → $lang — распознаём заново'
+        : 'Язык: ${current.lang} → $lang — резервная копия недоделана, '
+            'распознаём оставшееся');
     await _runJob(
       video,
       steps: _switchSteps,
