@@ -96,6 +96,26 @@ void main() {
   String beside(String video, String suffix) =>
       p.join(p.dirname(video), '${p.basenameWithoutExtension(video)}$suffix');
 
+  /// Ждёт, пока [done] не станет истинным, но не дольше [timeout]: для
+  /// записи, которую контроллер делает сам, по таймеру. Файл в это время
+  /// может дописываться — ошибка чтения значит «ещё нет».
+  Future<void> eventually(
+    bool Function() done, {
+    required String reason,
+    Duration timeout = const Duration(seconds: 5),
+  }) async {
+    final deadline = DateTime.now().add(timeout);
+    while (true) {
+      try {
+        if (done()) return;
+      } on Exception {
+        // ещё пишется
+      }
+      if (DateTime.now().isAfter(deadline)) fail(reason);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+  }
+
   Session sessionOnDisk(String video) => Session.fromJson(
       jsonDecode(File('$video.subtitler.json').readAsStringSync())
           as Map<String, dynamic>);
@@ -616,11 +636,18 @@ void main() {
 
       c.updateTranslation(1, 'правка следователя');
       expect(sessionOnDisk(video).cues.first.ru, isNot('правка следователя'));
-      await Future<void>.delayed(const Duration(milliseconds: 300));
-      await c.flush();
-      expect(sessionOnDisk(video).cues.first.ru, 'правка следователя');
-      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
-          contains('правка следователя'));
+      // flush() здесь не зовём: он записал бы отложенную правку сам, и
+      // тест не заметил бы, что таймер не заведён или не сработал. Правка
+      // должна дойти до диска без явных действий — на случай, если
+      // программа упадёт или компьютер выключат.
+      await eventually(
+        () =>
+            sessionOnDisk(video).cues.first.ru == 'правка следователя' &&
+            File(beside(video, '_ru.srt'))
+                .readAsStringSync()
+                .contains('правка следователя'),
+        reason: 'правка не записалась сама через editSaveDelay',
+      );
     });
 
     test('Видео перенесли вместе с сессией — правки пишутся к новому месту',
