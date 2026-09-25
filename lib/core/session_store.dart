@@ -124,12 +124,42 @@ class SessionStore {
   Future<String> _write(Session session, String primary, String fallback) async {
     final content = const JsonEncoder.withIndent(' ').convert(session.toJson());
     try {
-      await File(primary).writeAsString(content, flush: true);
+      await _replace(primary, content);
       return primary;
     } on FileSystemException {
       Directory(fallbackDir).createSync(recursive: true);
-      await File(fallback).writeAsString(content, flush: true);
+      await _replace(fallback, content);
       return fallback;
+    }
+  }
+
+  /// Пишет файл целиком или никак.
+  ///
+  /// `writeAsString` открывает файл в режиме [FileMode.write], и тот
+  /// обнуляется ещё до записи данных. Закрыли окно или программа упала
+  /// в этот момент — остаётся пустой файл: сессии «нет», ролик
+  /// распознаётся заново за деньги, ручные правки пропали. Поэтому
+  /// данные пишутся во временный файл рядом, а на место встают
+  /// переименованием: на Windows это `MoveFileExW` с
+  /// `MOVEFILE_REPLACE_EXISTING` (runtime/bin/file_win.cc в Dart SDK), в
+  /// Unix — `rename`; прежний файл заменяется целиком.
+  ///
+  /// Переименование отклоняется (код 5), если прежний файл «только для
+  /// чтения» или его держит другая программа без права удаления, —
+  /// проверено на Windows. Тогда, как и при отказе прямой записи,
+  /// сессия уходит в запасную папку, а временный файл удаляется.
+  static Future<void> _replace(String path, String content) async {
+    final temp = File('$path.tmp');
+    try {
+      await temp.writeAsString(content, flush: true);
+      await temp.rename(path);
+    } on FileSystemException {
+      try {
+        if (temp.existsSync()) temp.deleteSync();
+      } on FileSystemException {
+        // Не удалось убрать за собой — не повод терять саму запись.
+      }
+      rethrow;
     }
   }
 }

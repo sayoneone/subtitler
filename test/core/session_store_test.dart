@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/session_store.dart';
 
+import '../support/interrupted_writes.dart';
+
 void main() {
   late Directory tmp;
   late Directory fallback;
@@ -211,6 +213,68 @@ void main() {
     });
   });
 
+  group('Запись целиком или никак', () {
+    const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+
+    Session edited(String video) => sessionFor(video).copyWith(cues: const [
+          Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
+              ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+        ]);
+
+    test('Оборванная запись оставляет прежнюю сессию целой', () async {
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(video));
+
+      // Окно закрыли (или программа упала) посреди записи правки.
+      await expectLater(
+        interruptingWrites(() => store.save(edited(video))),
+        throwsA(isA<InterruptedWrite>()),
+      );
+
+      final loaded = await store.load(video, fp);
+      expect(loaded, isNotNull,
+          reason: 'иначе весь ролик распознаётся заново за деньги, '
+              'а ручные правки пропадают');
+      expect(loaded!.cues.single.ru, 'брат');
+    });
+
+    test('Новая запись заменяет прежнюю, временных файлов не остаётся',
+        () async {
+      final video = '${tmp.path}/clip.mp4';
+      File(video).writeAsBytesSync(List.filled(100, 0));
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(video));
+      final saved = await store.save(edited(video));
+
+      expect(saved, '${tmp.path}/clip.mp4.subtitler.json');
+      expect((await store.load(video, fp))!.cues.single.ru,
+          'правка следователя');
+      expect(
+          tmp.listSync().map((e) => e.uri.pathSegments.last).toSet(),
+          {'clip.mp4', 'clip.mp4.subtitler.json'});
+    });
+
+    test('Прежний файл заменить нельзя — запись в запасную папку, '
+        'временный файл не остаётся', () async {
+      final folder = Directory('${tmp.path}/ro')..createSync();
+      final video = '${folder.path}/clip.mp4';
+      File(video).writeAsBytesSync(List.filled(100, 0));
+      final store = SessionStore(fallbackDir: fallback.path);
+      final primary = await store.save(sessionFor(video));
+      addTearDown(protectFolder(folder.path, [primary]));
+
+      final saved = await store.save(edited(video));
+
+      expect(saved, startsWith(fallback.path));
+      expect(folder.listSync().map((e) => e.uri.pathSegments.last).toSet(),
+          {'clip.mp4', 'clip.mp4.subtitler.json'},
+          reason: 'временный файл убран');
+      expect(File(primary).readAsStringSync(), contains('брат'),
+          reason: 'прежний файл не тронут');
+    });
+  });
+
   test('Битый JSON не роняет приложение', () async {
     final video = '${tmp.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));
@@ -241,4 +305,28 @@ void main() {
         const SourceFingerprint(sizeBytes: 100, durationSec: 34.8));
     expect(loaded, isNotNull, reason: 'запасная сессия тоже должна читаться');
   }, skip: Platform.isWindows ? 'chmod не управляет доступом на Windows' : null);
+}
+
+/// Делает так, что в [folder] ничего не заменить, и возвращает отмену.
+///
+/// На Unix — папка без права записи. На Windows права папки меняются
+/// только через ACL; вместо этого уже лежащие там файлы [files] ставятся
+/// «только для чтения»: и прямая запись в них, и замена переименованием
+/// отклоняются тем же кодом 5 (нет доступа), что и в защищённой папке, —
+/// проверено на Windows 11. Новые файлы в папке на Windows создать
+/// по-прежнему можно, поэтому всё, что тест будет писать, должно уже
+/// лежать там.
+void Function() protectFolder(String folder, List<String> files) {
+  if (Platform.isWindows) {
+    for (final path in files) {
+      Process.runSync('attrib', ['+R', path]);
+    }
+    return () {
+      for (final path in files) {
+        Process.runSync('attrib', ['-R', path]);
+      }
+    };
+  }
+  Process.runSync('chmod', ['555', folder]);
+  return () => Process.runSync('chmod', ['755', folder]);
 }
