@@ -448,6 +448,32 @@ void main() {
       expect(h.controller.notice, isNull);
     });
 
+    // Журнал просят отправить разработчику, а в пути к видео бывают
+    // название дела и фамилии. Раньше путь от повторного запуска
+    // попадал в журнал целиком: папка пряталась только при открытии
+    // видео, уже после этой записи.
+    test('в журнал не попадает папка видео — ни в очереди, ни при '
+        'сообщении', () async {
+      for (final storedKey in [null, kTestApiKey]) {
+        final h = await started(storedKey: storedKey);
+        final c = h.controller;
+        if (storedKey != null) {
+          c.debugEmulate(
+              stage: AppStage.review,
+              session: sampleSession(),
+              saveStatus: SaveStatus.burning);
+        }
+        final folder = p.join(h.root.path, 'Дела', 'Дело №9 (тест)');
+        c.receiveFromAnotherLaunch(p.join(folder, 'запись.mp4'));
+        final journal = h.log.asText();
+        expect(journal, contains('Видео передано повторным запуском'));
+        expect(journal, contains('запись.mp4'),
+            reason: 'имя файла остаётся — по нему видно, о каком видео речь');
+        expect(journal, isNot(contains(folder)), reason: 'ключ: $storedKey');
+        expect(journal, isNot(contains('Дело №9')), reason: 'ключ: $storedKey');
+      }
+    });
+
     // Раньше видео, брошенное на значок, пока открыт экран «Изменить
     // ключ», молча вставало в очередь. С экрана ключа возвращались к
     // прежнему видео, и оно не открывалось. Зато потом, при следующем
