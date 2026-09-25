@@ -234,12 +234,14 @@ class ReviewErrorPanel extends StatelessWidget {
             if (technical.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(left: 34, top: 8, bottom: 8),
-                // Ниже, чем на экране ошибки: полоса сохранения делит
-                // высоту с видео и списком реплик.
+                // Без окошка со своей прокруткой: полоса сохранения
+                // прокручивается сама, а окошко внутри неё забирало свайп
+                // по середине полосы — на телефоне кнопки под ним было не
+                // достать. Кнопки поэтому над текстом.
                 child: TechnicalDetails(
                   text: technical,
                   onSaveLog: onSaveLog,
-                  maxHeight: 140,
+                  maxHeight: null,
                 ),
               ),
           ],

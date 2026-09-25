@@ -89,7 +89,14 @@ class TechnicalDetails extends StatelessWidget {
   final String saveLogLabel;
 
   /// Высота окошка с текстом; длиннее — прокручивается.
-  final double maxHeight;
+  ///
+  /// `null` — окошка нет: текст целиком, а «Скопировать» и «Сохранить
+  /// журнал» — над ним, чтобы длинный текст их не отодвигал. Это для мест,
+  /// которые прокручиваются сами, как полоса сохранения: окошко со своей
+  /// прокруткой забирало бы свайп пальца, а когда текст в нём кончался,
+  /// внешняя прокрутка дальше не ехала — кнопки под окошком на телефоне
+  /// было не достать.
+  final double? maxHeight;
 
   const TechnicalDetails({
     super.key,
@@ -102,6 +109,30 @@ class TechnicalDetails extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final limit = maxHeight;
+    final content = SelectableText(
+      text,
+      style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
+    );
+    final box = Container(
+      constraints: limit == null ? null : BoxConstraints(maxHeight: limit),
+      padding: const EdgeInsets.all(8),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: limit == null ? content : SingleChildScrollView(child: content),
+    );
+    final buttons = Wrap(spacing: 8, children: [
+      TextButton.icon(
+        onPressed: () => unawaited(copyText(context, text)),
+        icon: const Icon(Icons.copy, size: 18),
+        label: const Text(AppStrings.copy),
+      ),
+      if (onSaveLog != null)
+        TextButton.icon(
+          onPressed: onSaveLog,
+          icon: const Icon(Icons.save_alt, size: 18),
+          label: Text(saveLogLabel),
+        ),
+    ]);
     return Card(
       margin: EdgeInsets.zero,
       clipBehavior: Clip.antiAlias,
@@ -109,33 +140,9 @@ class TechnicalDetails extends StatelessWidget {
         title: const Text(AppStrings.technicalDetails),
         childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Container(
-            constraints: BoxConstraints(maxHeight: maxHeight),
-            padding: const EdgeInsets.all(8),
-            color: theme.colorScheme.surfaceContainerHighest,
-            child: SingleChildScrollView(
-              child: SelectableText(
-                text,
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 11),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Wrap(spacing: 8, children: [
-            TextButton.icon(
-              onPressed: () => unawaited(copyText(context, text)),
-              icon: const Icon(Icons.copy, size: 18),
-              label: const Text(AppStrings.copy),
-            ),
-            if (onSaveLog != null)
-              TextButton.icon(
-                onPressed: onSaveLog,
-                icon: const Icon(Icons.save_alt, size: 18),
-                label: Text(saveLogLabel),
-              ),
-          ]),
-        ],
+        children: limit == null
+            ? [buttons, const SizedBox(height: 8), box]
+            : [box, const SizedBox(height: 8), buttons],
       ),
     );
   }

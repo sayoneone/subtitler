@@ -163,7 +163,105 @@ Future<void> _expectReachable(WidgetTester tester, String text) async {
   expect(button.hitTestable(), findsOneWidget, reason: '«$text» заслонён');
 }
 
+/// Листает полосу сохранения так, как листает человек на телефоне: свайпом
+/// пальца по её середине, пока [text] не окажется в полосе на виду и под
+/// пальцем. Не больше [maxSwipes] свайпов. Возвращает, сколько их
+/// понадобилось.
+///
+/// ensureVisible здесь не годится: он докручивает программно и не
+/// замечает, что свайп по середине уходит во вложенную прокрутку, а та
+/// внешнюю дальше не двигает.
+Future<int> _swipeBarTo(WidgetTester tester, String text,
+    {int maxSwipes = 40}) async {
+  final bar = find.byKey(const ValueKey('review-save-scroll'));
+  final target = find.text(text);
+  final seen = <String>[];
+  for (var swipes = 0;; swipes++) {
+    final area = tester.getRect(bar);
+    if (target.evaluate().length == 1) {
+      final rect = tester.getRect(target);
+      if (area.contains(rect.center) &&
+          target.hitTestable().evaluate().isNotEmpty) {
+        return swipes;
+      }
+    }
+    final scroll = tester
+        .state<ScrollableState>(find.descendant(
+            of: bar, matching: find.byType(Scrollable)).first)
+        .position;
+    seen.add('${scroll.pixels.round()}/${scroll.maxScrollExtent.round()}');
+    if (swipes == maxSwipes) {
+      fail('«$text» не показался за $maxSwipes свайпов по середине полосы '
+          '$area; прокрутка полосы по свайпам: ${seen.join(' ')}');
+    }
+    await tester.dragFrom(area.center, const Offset(0, -60));
+    await tester.pumpAndSettle();
+  }
+}
+
 void main() {
+  // Телефон: «Технические детали» ошибки сохранения раскрыты, в них 40
+  // строк журнала. До кнопок под ними человек добирается свайпом по
+  // середине полосы — не должно быть места, где свайп листает только
+  // окошко с текстом, а полоса дальше не едет.
+  group('телефон: полоса сохранения листается свайпом', () {
+    for (final screen in _screens.where((s) => s.isMobile)) {
+      for (final MapEntry(key: sessionName, value: session)
+          in _sessions.entries) {
+        testWidgets('${screen.name}; $sessionName', (tester) async {
+          tester.view.devicePixelRatio = screen.scale;
+          tester.view.physicalSize = screen.size * screen.scale;
+          addTearDown(tester.view.reset);
+          tester.platformDispatcher.textScaleFactorTestValue = screen.text;
+          addTearDown(
+              tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+          final h = makeTestController(isMobile: true);
+          await h.controller.init();
+          for (var i = 0; i < 60; i++) {
+            h.log.info('выдуманная строка журнала номер $i: сегмент '
+                'обработан');
+          }
+          final c = h.controller;
+          c.debugEmulate(stage: AppStage.review, session: session());
+          c.debugEmulate(
+            saveStatus: SaveStatus.failed,
+            saveError: describeError(
+              StateError('Не удалось вшить субтитры: выдуманный вывод ffmpeg'),
+              mask: h.log.mask,
+            ),
+          );
+          await tester.pumpWidget(SubtitlerApp(
+            controller: c,
+            playerFactory: ({DebugLog? log}) => FakePreviewPlayer()..loaded(),
+          ));
+          await tester.pump();
+
+          await _swipeBarTo(tester, 'Технические детали');
+          await tester.tap(find.text('Технические детали'));
+          await tester.pumpAndSettle();
+          expect(find.textContaining('выдуманная строка журнала номер 59'),
+              findsOneWidget,
+              reason: 'детали раскрыты, журнал в них');
+
+          // Кнопки деталей — сразу под заголовком, над текстом журнала.
+          await _swipeBarTo(tester, 'Скопировать', maxSwipes: 5);
+          await _swipeBarTo(tester, 'Сохранить журнал', maxSwipes: 5);
+          // «Другое видео» — под всем текстом журнала. Свайпов здесь много:
+          // в тестовом шрифте каждая буква шириной с высоту, строки журнала
+          // переносятся в несколько раз чаще, чем на телефоне, а свайп без
+          // разгона двигает полосу не дальше длины движения. Проверяется,
+          // что тупика нет: полоса доезжает до конца.
+          await _swipeBarTo(tester, 'Другое видео', maxSwipes: 250);
+          expect(tester.takeException(), isNull);
+
+          await tester.pumpWidget(const SizedBox());
+          await h.dispose();
+        });
+      }
+    }
+  });
+
   for (final screen in _screens) {
     for (final MapEntry(key: sessionName, value: session) in _sessions.entries) {
       for (final save in _Save.values) {
