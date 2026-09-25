@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -14,14 +15,25 @@ const String kFontFamily = 'Noto Sans';
 /// Шрифт лежит внутри бандла приложения, а libass умеет читать только
 /// обычные файлы — поэтому при запуске он выкладывается на диск.
 class AppRuntime {
+  /// Папка приложения (на Windows — перемещаемый профиль, Roaming):
+  /// журнал, шрифт, настройки, запасные сессии. Всё мелкое.
   final String supportDir;
   final String fontsDir;
+
+  /// Временные файлы обработки: звук, нарезанные сегменты. На Windows —
+  /// LocalAppData: в перемещаемом профиле сотни мегабайт звука
+  /// синхронизировались бы с сервером при каждом выходе из системы.
   final String workDir;
+
+  /// Запасная папка для готовых файлов, когда рядом с видео писать нельзя.
+  /// Тоже LocalAppData: видео с субтитрами весит как исходник.
+  final String outputDir;
 
   const AppRuntime({
     required this.supportDir,
     required this.fontsDir,
     required this.workDir,
+    required this.outputDir,
   });
 
   static Future<AppRuntime> prepare({DebugLog? log}) async {
@@ -38,25 +50,71 @@ class AppRuntime {
     journal.debug('Шрифт распакован: ${fontFile.path} '
         '(${bytes.lengthInBytes} байт)');
 
-    final work = Directory(p.join(support.path, 'work'));
-    work.createSync(recursive: true);
+    // На Android кеш система чистит сама, когда не хватает места, — готовое
+    // видео там пропало бы. Рабочие файлы пусть лежат в кеше, а запасная
+    // папка для результата — среди постоянных файлов приложения.
+    final cache = await _cacheDirOr(support.path, journal);
+    final work = Directory(p.join(cache, 'work'))..createSync(recursive: true);
+    final output = Directory(
+        p.join(Platform.isAndroid ? support.path : cache, 'output'));
+
+    _removeOldWorkDir(p.join(support.path, 'work'), work.path, journal);
 
     journal.info('Папка приложения: ${support.path}');
+    journal.info('Рабочая папка: ${work.path}');
     return AppRuntime(
       supportDir: support.path,
       fontsDir: fonts.path,
       workDir: work.path,
+      outputDir: output.path,
     );
+  }
+
+  static Future<String> _cacheDirOr(String fallback, DebugLog log) async {
+    try {
+      return (await getApplicationCacheDirectory()).path;
+    } catch (e) {
+      log.warn('Папка для временных файлов недоступна ($e) — '
+          'пишем их в папку приложения');
+      return fallback;
+    }
+  }
+
+  /// Прежние версии держали рабочую папку в Roaming. Там могли остаться
+  /// сотни мегабайт звука; сессий и правок там нет — только нарезка,
+  /// которую при нужде ядро сделает заново. Удаляется в фоне: запуск
+  /// программы ждать этого не должен.
+  static void _removeOldWorkDir(String old, String current, DebugLog log) {
+    if (p.equals(old, current)) return;
+    final dir = Directory(old);
+    if (!dir.existsSync()) return;
+    unawaited(dir.delete(recursive: true).then(
+      (_) => log.info('Удалена прежняя рабочая папка: $old'),
+      onError: (Object e) =>
+          log.warn('Не удалось удалить прежнюю рабочую папку $old: $e'),
+    ));
   }
 
   /// Рабочая папка под конкретное видео: имя стабильно, поэтому повторная
   /// обработка того же файла переиспользует уже нарезанные сегменты.
   String workDirFor(String videoPath) {
     final name = p.basenameWithoutExtension(videoPath);
-    final stamp = videoPath.hashCode.toUnsigned(32).toRadixString(16);
-    return p.join(workDir, '${_sanitize(name)}_$stamp');
+    return p.join(workDir, '${_sanitize(name)}_${stablePathHash(videoPath)}');
   }
 
   static String _sanitize(String name) =>
       name.replaceAll(RegExp(r'[^A-Za-zА-Яа-я0-9_-]+'), '_');
+}
+
+/// FNV-1a от пути. `String.hashCode` не обещает одинаковых значений между
+/// версиями Dart, а имена рабочей и запасной папки должны пережить
+/// обновление приложения: иначе после него уже нарезанное пришлось бы
+/// резать заново, а результат ложился бы в новую папку.
+String stablePathHash(String path) {
+  var hash = 0x811c9dc5;
+  for (final unit in path.codeUnits) {
+    hash ^= unit;
+    hash = (hash * 0x01000193) & 0xffffffff;
+  }
+  return hash.toRadixString(16).padLeft(8, '0');
 }
