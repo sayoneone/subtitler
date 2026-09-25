@@ -343,8 +343,7 @@ class Pipeline {
             );
             connection.answered();
             (recognized[lang] ??= {})[cue.index] = text;
-            log.info('[$lang] реплика ${cue.index}: '
-                '${text.isEmpty ? '(пусто)' : text}');
+            log.info('[$lang] реплика ${cue.index}: ${_describeText(text)}');
           } on AuthException {
             rethrow;
           } on ApiException catch (e) {
@@ -434,6 +433,16 @@ class Pipeline {
     // затирает, а откладывает в сторону — см. SessionStore._keepUnreadable.
     await store.save(session);
     return LanguageProbe(session: session, verdict: verdict);
+  }
+
+  /// Что услышала модель — для журнала. Самого текста там нет: журнал
+  /// просят отправить разработчику, а это речь из материалов дела. Для
+  /// разбора хватает «пусто» и числа слов; сами тексты проб лежат в файле
+  /// сессии (probeTexts), а реплики отладочный стенд показывает на своём
+  /// экране.
+  static String _describeText(String text) {
+    final words = text.trim().split(RegExp(r'\s+')).where((w) => w.isNotEmpty);
+    return words.isEmpty ? 'пусто' : 'не пусто, слов: ${words.length}';
   }
 
   /// Реплика уже распознана — текстом или «речи нет».
@@ -647,7 +656,7 @@ class Pipeline {
         );
         log.info(text.trim().isEmpty
             ? 'реплика ${cue.index}: речи нет'
-            : 'реплика ${cue.index}: $text');
+            : 'реплика ${cue.index}: ${_describeText(text)}');
       } on PipelineCancelledException {
         // Отмена в паузе между повторами: повторы не исчерпаны, реплика
         // остаётся какой была и распознается при продолжении.
@@ -704,7 +713,8 @@ class Pipeline {
         sleep: sleep,
         isCancelled: cancelled,
       );
-      log.info('Переведено реплик: ${translations.length}');
+      log.info('Переведено реплик: ${translations.length}, знаков: '
+          '${translations.fold<int>(0, (sum, t) => sum + t.length)}');
       for (var i = 0; i < pending.length && i < translations.length; i++) {
         final position = cues.indexWhere((c) => c.index == pending[i].index);
         cues[position] = cues[position].copyWith(ru: translations[i]);

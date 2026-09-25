@@ -1049,6 +1049,55 @@ void main() {
     });
   });
 
+  // Журнал просят «сохранить и отправить разработчику». Раньше в нём были
+  // распознанная речь (пробы всех языков и каждая реплика) и полные пути
+  // к видео с названиями дел.
+  test('В журнале нет ни текста записей, ни папки видео; ключ замаскирован',
+      () async {
+    final (h, stt, _) = await turkishVideo();
+    final c = h.controller;
+    final logFile = p.join(h.root.path, 'журнал', 'subtitler.log');
+    h.log.attachFile(logFile);
+    final video = h.copyVideo(probeClip,
+        folder: p.join('Дела', 'Дело №7 (тест)'), name: 'clip.mp4');
+    final folder = p.dirname(video);
+
+    await c.openVideo(video);
+    expect(c.stage, AppStage.review);
+    expect(stt.calls, isNotEmpty);
+    await c.save();
+    h.log.warn('проверка маски ключа: $kTestApiKey');
+    final exported = await c.exportLog();
+    await h.log.close();
+
+    final texts = {
+      for (final byCue in turkishSpeech.values) ...byCue.values,
+    };
+    final journals = {
+      'в памяти': h.log.asText(),
+      'в файле': File(logFile).readAsStringSync(),
+      '«Сохранить журнал»': File(exported).readAsStringSync(),
+      '«Технические детали»': c.recentLog(lines: 1000),
+      'ошибка с путём': describeError(
+              FileSystemException('Не удалось открыть', video),
+              mask: h.log.mask)
+          .details,
+    };
+    for (final MapEntry(key: where, value: journal) in journals.entries) {
+      for (final text in texts) {
+        expect(journal, isNot(contains(text)),
+            reason: 'распознанный текст $where');
+      }
+      expect(journal, isNot(contains('RU:')), reason: 'перевод $where');
+      expect(journal, isNot(contains(folder)), reason: 'папка видео $where');
+      expect(journal, isNot(contains('Дело №7')), reason: where);
+      expect(journal, isNot(contains(kTestApiKey)), reason: where);
+    }
+    expect(h.log.asText(), contains('clip.mp4'),
+        reason: 'имя файла остаётся — по нему видно, о каком видео речь');
+    expect(h.log.asText(), contains('***КЛЮЧ***'));
+  }, skip: burnSkip);
+
   group('Язык', () {
     test('Переключение на язык из резервной копии бесплатно', () async {
       final (h, stt, video) = await turkishVideo();

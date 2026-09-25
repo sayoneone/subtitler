@@ -21,8 +21,8 @@ const String kFontFamily = 'Noto Sans';
 /// Шрифт лежит внутри бандла приложения, а libass умеет читать только
 /// обычные файлы — поэтому при запуске он выкладывается на диск.
 class AppRuntime {
-  /// Папка приложения (на Windows — перемещаемый профиль, Roaming):
-  /// журнал, шрифт, настройки, запасные сессии. Всё мелкое.
+  /// Папка приложения (на Windows — перемещаемый профиль, Roaming): шрифт,
+  /// настройки, запасные сессии. Всё мелкое.
   final String supportDir;
   final String fontsDir;
 
@@ -35,17 +35,30 @@ class AppRuntime {
   /// Тоже LocalAppData: видео с субтитрами весит как исходник.
   final String outputDir;
 
+  final String? _journalDir;
+
+  /// Где журнал и сохранённые копии журнала. На Windows — LocalAppData,
+  /// рядом с рабочей папкой: из перемещаемого профиля журнал уезжал бы
+  /// на сервер профилей. Не задана — папка приложения.
+  String get logDir => _journalDir ?? supportDir;
+
   const AppRuntime({
     required this.supportDir,
     required this.fontsDir,
     required this.workDir,
     required this.outputDir,
-  });
+    String? logDir,
+  }) : _journalDir = logDir;
 
   static Future<AppRuntime> prepare({DebugLog? log}) async {
     final journal = log ?? DebugLog.instance;
     final support = await getApplicationSupportDirectory();
-    journal.attachFile(p.join(support.path, 'subtitler.log'));
+    final cache = await _cacheDirOr(support.path, journal);
+    // На Android кеш система чистит сама — журнал сбоя там мог бы пропасть
+    // раньше, чем его отправят, поэтому он остаётся среди постоянных
+    // файлов, как и раньше.
+    final logs = Platform.isAndroid ? support.path : cache;
+    journal.attachFile(p.join(logs, 'subtitler.log'));
 
     final fonts = Directory(p.join(support.path, 'fonts'));
     fonts.createSync(recursive: true);
@@ -59,7 +72,6 @@ class AppRuntime {
     // На Android кеш система чистит сама, когда не хватает места, — готовое
     // видео там пропало бы. Рабочие файлы пусть лежат в кеше, а запасная
     // папка для результата — среди постоянных файлов приложения.
-    final cache = await _cacheDirOr(support.path, journal);
     final work = Directory(p.join(cache, 'work'))..createSync(recursive: true);
     final output = Directory(
         p.join(Platform.isAndroid ? support.path : cache, 'output'));
@@ -76,6 +88,7 @@ class AppRuntime {
       fontsDir: fonts.path,
       workDir: work.path,
       outputDir: output.path,
+      logDir: logs,
     );
   }
 

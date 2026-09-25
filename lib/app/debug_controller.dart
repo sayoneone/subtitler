@@ -218,6 +218,8 @@ class DebugController extends ChangeNotifier {
     languageVerdict = null;
     notifyListeners();
 
+    // Стенд пишет в тот же журнал: папка видео прячется и здесь.
+    log.hideFolderOf(path);
     log.info('Выбрано видео: $path');
     try {
       final size = File(path).lengthSync();

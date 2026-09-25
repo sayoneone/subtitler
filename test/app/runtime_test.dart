@@ -48,7 +48,11 @@ void main() {
     expect(runtime.supportDir, roaming);
     expect(File(p.join(roaming, 'fonts', 'NotoSans-Regular.ttf')).existsSync(),
         isTrue);
-    expect(log.filePath, p.join(roaming, 'subtitler.log'));
+    // Журнал — не в перемещаемом профиле: он уезжал бы на сервер
+    // профилей (на Android — среди постоянных файлов, как раньше).
+    final logs = Platform.isAndroid ? roaming : local;
+    expect(log.filePath, p.join(logs, 'subtitler.log'));
+    expect(runtime.logDir, logs);
     expect(runtime.workDirFor(p.join('дело', 'clip.mp4')),
         startsWith(runtime.workDir));
 

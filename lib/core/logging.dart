@@ -25,6 +25,10 @@ class LogEntry {
 /// Главное требование — в журнал НИКОГДА не должен попасть API-ключ.
 /// Поэтому все секреты регистрируются через [redact] и вырезаются из
 /// каждого сообщения, даже если их случайно подставили в текст ошибки.
+///
+/// Журнал человека просят сохранить и отправить разработчику, поэтому в
+/// нём нет и материалов дела: текст записей в журнал не пишется, а папки
+/// с видео прячутся так же, как ключ ([hideFolderOf]).
 class DebugLog {
   static final DebugLog instance = DebugLog();
 
@@ -32,6 +36,10 @@ class DebugLog {
 
   final List<LogEntry> entries = [];
   final Set<String> _secrets = {};
+
+  /// Папки с видео, длинные первыми: вложенная папка прячется целиком, а
+  /// не так, что от неё остаётся хвост после родительской.
+  final List<String> _folders = [];
   final _controller = StreamController<LogEntry>.broadcast();
 
   IOSink? _fileSink;
@@ -93,13 +101,42 @@ class DebugLog {
     if (secret != null && secret.length >= 8) _secrets.add(secret);
   }
 
-  /// Вырезает из [message] все секреты, зарегистрированные через [redact].
-  /// Нужна не только журналу: текст ошибки, который интерфейс покажет в
-  /// «Технических деталях», проходит через ту же маску.
+  /// Прячет папку файла [filePath]: во всех записях журнала — в памяти, в
+  /// файле, в «Технических деталях», в «Сохранить журнал» — вместо неё
+  /// «…», а имя файла остаётся. В пути к видео бывают название дела и
+  /// фамилии, разработчику они не нужны. Действует на записи, сделанные
+  /// после вызова, — звать до первой записи с этим путём.
+  void hideFolderOf(String filePath) {
+    final folder = File(filePath).parent.path;
+    // Корень диска или «.»: прятать там нечего, а маска съела бы любые
+    // пути журнала.
+    if (Directory(folder).parent.path == folder) return;
+    final variants = {
+      folder,
+      // Тот же путь с другими разделителями: путь к одному и тому же
+      // файлу приходит и с «/», и с «\».
+      folder.replaceAll(r'\', '/'),
+      folder.replaceAll('/', r'\'),
+      // Так путь с апострофом выглядит в строке команды ffmpeg.
+      folder.replaceAll("'", r"'\''"),
+    };
+    for (final variant in variants) {
+      if (!_folders.contains(variant)) _folders.add(variant);
+    }
+    _folders.sort((a, b) => b.length.compareTo(a.length));
+  }
+
+  /// Вырезает из [message] все секреты, зарегистрированные через [redact],
+  /// и папки с видео ([hideFolderOf]). Нужна не только журналу: текст
+  /// ошибки, который интерфейс покажет в «Технических деталях», проходит
+  /// через ту же маску.
   String mask(String message) {
     var result = message;
     for (final secret in _secrets) {
       result = result.replaceAll(secret, '***КЛЮЧ***');
+    }
+    for (final folder in _folders) {
+      result = result.replaceAll(folder, '…');
     }
     return result;
   }

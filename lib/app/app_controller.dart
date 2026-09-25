@@ -230,6 +230,7 @@ class AppController extends ChangeNotifier {
     final video = _pendingVideo;
     if (video == null || _stage != AppStage.home) return;
     _pendingVideo = null;
+    log.hideFolderOf(video);
     log.info('Видео передано при запуске: $video');
     unawaited(openVideo(video));
   }
@@ -310,7 +311,8 @@ class AppController extends ChangeNotifier {
     return lines.join('\n');
   }
 
-  /// Последние строки журнала — ключ в них уже замаскирован.
+  /// Последние строки журнала — ключ и папки видео в них уже
+  /// замаскированы, текста записей там нет.
   String recentLog({int lines = 40}) {
     final entries = log.entries;
     final from = entries.length > lines ? entries.length - lines : 0;
@@ -727,6 +729,9 @@ class AppController extends ChangeNotifier {
   /// [longVideoThreshold] — [longVideoQuestion] и ожидание
   /// [confirmLongVideo]. Завершается, когда обработка закончена.
   Future<void> openVideo(String path) async {
+    // Папка видео (название дела, фамилии) в журнал не попадает — ни в
+    // одну запись, поэтому прячем её раньше первой записи с этим путём.
+    log.hideFolderOf(path);
     if (!canOpenVideo) {
       log.info('Видео сейчас не принимается (этап ${_stage.name}'
           '${isBusy ? ', идёт работа' : ''}): $path');
@@ -1421,9 +1426,10 @@ class AppController extends ChangeNotifier {
   }
 
   /// «Сохранить журнал…»: весь журнал этого запуска в файл [to] (по
-  /// умолчанию — в папку приложения). Возвращает путь.
+  /// умолчанию — рядом с файлом журнала). Возвращает путь. Текста записей
+  /// и папок с видео в журнале нет (см. [DebugLog.hideFolderOf]).
   Future<String> exportLog({String? to}) async {
-    final dir = _runtime?.supportDir ?? Directory.systemTemp.path;
+    final dir = _runtime?.logDir ?? Directory.systemTemp.path;
     final stamp = DateTime.now()
         .toIso8601String()
         .replaceAll(RegExp(r'[:.]'), '-')

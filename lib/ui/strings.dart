@@ -30,7 +30,8 @@ abstract final class AppStrings {
   static const logClear = 'Очистить';
   static const saveLog = 'Сохранить журнал';
   static const shareLog = 'Отправить журнал';
-  static String logSaved(String path) => 'Журнал сохранён: $path';
+  static String logSaved(String path) => 'Журнал сохранён: $path. '
+      'В нём нет текста записей и названий папок.';
   static const logSaveFailed =
       'Не удалось сохранить журнал — причина записана в журнал работы';
   static const logFileMissing = 'Файл журнала ещё не создан';

@@ -133,6 +133,7 @@ void main() {
     expect(text, isNot(contains(kTestApiKey)));
     await tester.pump();
     expect(find.textContaining('Журнал сохранён:'), findsOneWidget);
+    expect(find.textContaining('нет текста записей'), findsOneWidget);
 
     await closeApp(tester, h);
   });
