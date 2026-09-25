@@ -376,6 +376,32 @@ void main() {
     });
   });
 
+  test('Стёртый человеком перевод не переводится заново', () async {
+    final copy = freshCopy(video);
+    final workDir = '${tmp.path}/work${workCounter++}';
+    final done = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+            workDir: workDir)
+        .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+    final edited = done.copyWith(cues: [
+      done.cues[0].copyWith(ru: '', edited: true), // стёр человек
+      done.cues[1].copyWith(ru: ''), // перевод не получен
+      done.cues[2],
+    ]);
+
+    final tr = FakeTranslate();
+    final resumed = await build(FakeStt(const []), tr, workDir: workDir)
+        .process(
+      videoPath: copy,
+      lang: 'tr-TR',
+      resumeFrom: edited,
+      sleep: (_) async {},
+    );
+    expect(tr.lastTexts, ['iki'], reason: 'только то, что не переведено');
+    expect(resumed.cues[0].ru, '');
+    expect(resumed.cues[0].edited, isTrue);
+    expect(resumed.cues[1].ru, 'RU:iki');
+  });
+
   test('Прогресс сообщает этапы по порядку', () async {
     final stages = <PipelineStage>[];
     await build(FakeStt(['bir']), FakeTranslate()).process(

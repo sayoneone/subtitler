@@ -80,6 +80,62 @@ void main() {
     expect(restored.probeTexts['uz-UZ'], {3: 'ertaga ertalab bozorga boramiz'});
   });
 
+  group('Ручная правка перевода (edited)', () {
+    const erased = Cue(
+      index: 2,
+      range: TimeRange(3, 5),
+      orig: 'tamam tamam tamam tamam',
+      ru: '',
+      status: CueStatus.ok,
+      flags: {CueFlag.repeatLoop},
+      edited: true,
+    );
+
+    test('переживает сериализацию и отличает стёртое от непереведённого',
+        () {
+      final restored = Cue.fromJson(
+          jsonDecode(jsonEncode(erased.toJson())) as Map<String, dynamic>);
+      expect(restored.edited, isTrue);
+      expect(restored.awaitsTranslation, isFalse,
+          reason: 'стёр человек — заново не переводить');
+      expect(erased.copyWith(edited: false).awaitsTranslation, isTrue,
+          reason: 'перевод ещё не получен');
+    });
+
+    // Сессии, записанные до появления поля, должны читаться: иначе каждый
+    // уже обработанный ролик пришлось бы оплачивать заново.
+    for (final schema in [1, 2]) {
+      test('сессия схемы $schema без поля читается как «правок не было»', () {
+        final json = {
+          'schemaVersion': schema,
+          'videoPath': '/tmp/video.mp4',
+          'fingerprint': {'sizeBytes': 10, 'durationSec': 1.0},
+          'lang': 'tr-TR',
+          'silenceThreshold': '-30dB',
+          'forcedSplit': false,
+          'cues': [
+            {
+              'index': 1,
+              'range': {'start': 0.0, 'end': 1.7},
+              'orig': 'akşam eve geç geleceğim',
+              'ru': '',
+              'status': 'ok',
+              'flags': ['translateFailed'],
+            },
+          ],
+        };
+        final cue = Session.fromJson(json).cues.single;
+        expect(cue.edited, isFalse);
+        expect(cue.awaitsTranslation, isTrue);
+      });
+    }
+
+    test('без правки поле в файл не пишется — прежние версии его не ждут',
+        () {
+      expect(erased.copyWith(edited: false).toJson(), isNot(contains('edited')));
+    });
+  });
+
   test('copyWith сбрасывает уверенность только по явному null', () {
     const session = Session(
       videoPath: '/tmp/video.mp4',

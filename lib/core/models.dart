@@ -27,6 +27,11 @@ class Cue {
   final CueStatus status;
   final Set<CueFlag> flags;
 
+  /// Перевод правил человек. Пустой [ru] у такой реплики — его решение
+  /// («этой строки в видео не будет»), а не «перевод ещё не получен»:
+  /// заново она не переводится.
+  final bool edited;
+
   const Cue({
     required this.index,
     required this.range,
@@ -34,7 +39,16 @@ class Cue {
     required this.ru,
     required this.status,
     required this.flags,
+    this.edited = false,
   });
+
+  /// Перевод ещё предстоит получить: текст распознан, перевода нет, и
+  /// человек его не стирал. Пустой оригинал переводить нечего.
+  bool get awaitsTranslation =>
+      status == CueStatus.ok &&
+      ru.trim().isEmpty &&
+      orig.trim().isNotEmpty &&
+      !edited;
 
   Cue copyWith({
     int? index,
@@ -43,6 +57,7 @@ class Cue {
     String? ru,
     CueStatus? status,
     Set<CueFlag>? flags,
+    bool? edited,
   }) {
     return Cue(
       index: index ?? this.index,
@@ -51,6 +66,7 @@ class Cue {
       ru: ru ?? this.ru,
       status: status ?? this.status,
       flags: flags ?? this.flags,
+      edited: edited ?? this.edited,
     );
   }
 
@@ -61,8 +77,12 @@ class Cue {
         'ru': ru,
         'status': status.name,
         'flags': flags.map((f) => f.name).toList(),
+        if (edited) 'edited': true,
       };
 
+  /// Поля `edited` у сессий, записанных до него, нет — значит, `false`.
+  /// Поле необязательное, поэтому схема сессии из-за него не меняется:
+  /// прежние версии программы такую сессию прочитают, просто без него.
   static Cue fromJson(Map<String, dynamic> json) => Cue(
         index: json['index'] as int,
         range: TimeRange.fromJson(json['range'] as Map<String, dynamic>),
@@ -72,6 +92,7 @@ class Cue {
         flags: (json['flags'] as List)
             .map((n) => CueFlag.values.byName(n as String))
             .toSet(),
+        edited: json['edited'] as bool? ?? false,
       );
 }
 
@@ -114,6 +135,8 @@ enum LanguageConfidence {
 
 class Session {
   /// 2 — добавлены [langConfidence], [langRunnerUp] и [probeTexts].
+  /// `Cue.edited` появился без смены схемы: поле необязательное, и
+  /// сессии схем 1 и 2 без него читаются как «правок не было».
   static const int currentSchemaVersion = 2;
 
   final int schemaVersion;

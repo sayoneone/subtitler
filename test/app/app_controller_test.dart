@@ -723,9 +723,63 @@ void main() {
       expect(buildSrt(c.session!.cues, field: SrtField.ru),
           contains('вписал сам'));
 
-      // Обратное не делается: стёртый текст не превращает реплику в «речи нет».
+      // Стёрли — снова «речи нет»: распознанного оригинала у реплики нет,
+      // сказать в кадре нечего.
       c.updateTranslation(cue.index, '');
-      expect(c.session!.cues.first.status, CueStatus.ok);
+      expect(c.session!.cues.first.status, CueStatus.empty);
+    });
+
+    // Стереть перевод — единственный способ убрать строку-бред из видео.
+    // Раньше стёртое не отличалось от «перевод ещё не получен»: при
+    // следующем открытии видео реплика переводилась заново, и строка
+    // возвращалась в .srt, а потом и в видео.
+    test('Стёртый человеком перевод не возвращается при повторном открытии',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      c.updateTranslation(1, ''); // убрал строку из видео
+      await c.goHome();
+
+      final translate = FakeTranslate();
+      final stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      h
+        ..translate = translate
+        ..stt = stt;
+      await c.openVideo(video);
+
+      expect(c.stage, AppStage.review);
+      expect(translate.calls, 0, reason: 'стёртое человеком не переводится');
+      expect(stt.calls, isEmpty);
+      expect(c.session!.cues.first.ru, '');
+      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
+          isNot(contains('RU:yarın')));
+    });
+
+    test('Стёртый текст в «речи нет» — снова «речи нет», сессия готова',
+        () async {
+      final h = await started(longVideoThreshold: const Duration(seconds: 1));
+      final c = h.controller;
+      h.stt = FakeStt(const ['', '', '']); // модели ничего не услышали
+      final video = h.copyVideo(speechClip);
+      await c.openVideo(video);
+      await c.confirmLongVideo();
+      expect(c.stage, AppStage.review);
+      final index = c.session!.cues.first.index;
+
+      c.updateTranslation(index, 'вписал по ошибке');
+      c.updateTranslation(index, '');
+      expect(c.session!.cues.first.status, CueStatus.empty);
+      await c.goHome();
+
+      // Ролик «длинный» (порог 1 с), но делать с ним уже нечего: ни
+      // вопроса о долгой платной обработке, ни запроса перевода.
+      final translate = FakeTranslate();
+      h.translate = translate;
+      await c.openVideo(video);
+      expect(c.longVideoQuestion, isNull);
+      expect(c.stage, AppStage.review);
+      expect(translate.calls, 0);
     });
 
     test('Правка снимает пометку «перевод не получен»', () async {

@@ -587,6 +587,7 @@ class Pipeline {
           ru: old.ru,
           status: old.status,
           flags: old.flags,
+          edited: old.edited,
         );
       }).toList(),
     );
@@ -668,9 +669,8 @@ class Pipeline {
     if (cancelled()) return session;
 
     final cues = [...session.cues];
-    final pending = cues
-        .where((c) => c.status == CueStatus.ok && c.ru.trim().isEmpty)
-        .toList();
+    // Стёртый человеком перевод — его решение, а не «ещё не переведено».
+    final pending = cues.where((c) => c.awaitsTranslation).toList();
     if (pending.isEmpty) return session;
 
     report(PipelineProgress(PipelineStage.translating,

@@ -793,10 +793,11 @@ class AppController extends ChangeNotifier {
   /// Делать больше нечего: всё распознано и переведено. Реплика с текстом
   /// без перевода — незаконченная: обработку могли остановить перед
   /// переводом, и повторное открытие должно его доделать (перевод дёшев,
-  /// распознавание уже оплаченных реплик ядро не повторяет).
+  /// распознавание уже оплаченных реплик ядро не повторяет). Кроме
+  /// перевода, который стёр человек (`Cue.edited`): это его решение.
   static bool _isComplete(Session session) => session.cues.every((c) =>
       c.status == CueStatus.empty ||
-      (c.status == CueStatus.ok && c.ru.trim().isNotEmpty));
+      (c.status == CueStatus.ok && !c.awaitsTranslation));
 
   /// Определить язык и обработать. Сохранённую сессию ядро отдаёт без
   /// проб; если в ней всё распознано — сразу в редактор, без запросов.
@@ -1208,7 +1209,12 @@ class AppController extends ChangeNotifier {
   /// Реплика «речи нет» (`empty`) с вписанным текстом становится `ok`:
   /// предпросмотр такие реплики скрывает, а вшивание берёт любой непустой
   /// текст — без смены статуса человек не увидел бы в кадре то, что
-  /// окажется в готовом видео. Обратно (текст стёрли) статус не меняется.
+  /// окажется в готовом видео. Если текст стёрли, а распознанного
+  /// оригинала нет, реплика снова «речи нет».
+  ///
+  /// Правка помечает реплику `edited`: стёртый человеком перевод больше не
+  /// считается «ещё не полученным» — ни перевода заново, ни «незаконченной»
+  /// сессии при следующем открытии видео.
   void updateTranslation(int cueIndex, String text) {
     final session = _session;
     if (_stage != AppStage.review || session == null) return;
@@ -1230,15 +1236,19 @@ class AppController extends ChangeNotifier {
 
   static Cue _edited(Cue cue, String text) {
     final filled = text.trim().isNotEmpty;
-    final status =
-        cue.status == CueStatus.empty && filled ? CueStatus.ok : cue.status;
+    final status = switch (cue.status) {
+      CueStatus.empty when filled => CueStatus.ok,
+      // В «речи нет» вписали текст и стёрли: сказать в кадре снова нечего.
+      CueStatus.ok when !filled && cue.orig.trim().isEmpty => CueStatus.empty,
+      _ => cue.status,
+    };
     // «Перевод не получен» после правки уже неправда; если перевод снова
     // стёрли при непустом оригинале — снова правда.
     final flags = {...cue.flags}..remove(CueFlag.translateFailed);
     if (!filled && cue.orig.trim().isNotEmpty) {
       flags.add(CueFlag.translateFailed);
     }
-    return cue.copyWith(ru: text, status: status, flags: flags);
+    return cue.copyWith(ru: text, status: status, flags: flags, edited: true);
   }
 
   /// Дописывает на диск правки, которые ещё ждут своей задержки, и ждёт
