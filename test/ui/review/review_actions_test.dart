@@ -220,23 +220,6 @@ void main() {
     await rig.finish(tester);
   });
 
-  testWidgets('длинный ролик: «Продолжить» подтверждает', (tester) async {
-    final rig = await _pump(tester);
-    rig.controller.debugEmulate(
-      longVideoQuestion: const LongVideoQuestion(
-        videoPath: '/видео/дело 1/clip.mp4',
-        duration: Duration(hours: 1, minutes: 5),
-      ),
-    );
-    await tester.pump();
-    expect(find.text('Ролик длинный — 1 ч 5 мин'), findsOneWidget);
-
-    await tester.tap(find.text('Продолжить'));
-    await tester.pump();
-    expect(rig.events, ['confirm long']);
-    await rig.finish(tester);
-  });
-
   group('Сохранение', () {
     testWidgets('сначала пауза, потом сохранение; повторное нажатие не '
         'запускает второе', (tester) async {

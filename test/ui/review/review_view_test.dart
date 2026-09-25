@@ -751,48 +751,9 @@ void main() {
       await finishReview(tester, rig);
     });
 
-    testWidgets('сообщение контроллера — плашка, закрывается крестиком', (
-      tester,
-    ) async {
-      final rig = await pumpReview(tester);
-      rig.controller.debugEmulate(
-        notice: const UserError(
-          title: 'Не удалось переключить язык',
-          hint: 'Повторите через минуту.',
-        ),
-      );
-      await tester.pump();
-      expect(find.text('Не удалось переключить язык'), findsOneWidget);
-
-      await tester.tap(
-        find.descendant(
-          of: find.byKey(const ValueKey('review-notice')),
-          matching: find.byTooltip('Закрыть'),
-        ),
-      );
-      await tester.pump();
-      expect(rig.controller.notice, isNull);
-      expect(find.text('Не удалось переключить язык'), findsNothing);
-      await finishReview(tester, rig);
-    });
-
-    testWidgets('вопрос о длинном ролике — на этом же экране', (tester) async {
-      final rig = await pumpReview(tester);
-      rig.controller.debugEmulate(
-        longVideoQuestion: const LongVideoQuestion(
-          videoPath: _video,
-          duration: Duration(minutes: 42),
-        ),
-      );
-      await tester.pump();
-      expect(find.text('Ролик длинный — 42 мин'), findsOneWidget);
-
-      await tester.tap(find.text('Отмена'));
-      await tester.pump();
-      expect(rig.controller.longVideoQuestion, isNull);
-      expect(find.text('Ролик длинный — 42 мин'), findsNothing);
-      await finishReview(tester, rig);
-    });
+    // Сообщения контроллера и вопрос о длинном ролике на этом экране не
+    // рисуются: их показывает оболочка над любым экраном (см.
+    // app_shell_test «…показываются по одному разу»).
   });
 
   testWidgets('узкое окно: плеер сверху, список под ним, без переполнения', (

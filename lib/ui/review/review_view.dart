@@ -7,6 +7,7 @@ import '../../app/user_error.dart';
 import '../../core/languages.dart';
 import '../../core/logging.dart';
 import '../../core/models.dart';
+import '../log_actions.dart';
 import '../player/preview_player.dart';
 import '../player/video_preview.dart';
 import 'cue_list.dart';
@@ -350,8 +351,8 @@ class _ReviewViewState extends State<ReviewView> {
     ].where((choice) => choice.code == session.langRunnerUp).firstOrNull;
     final canSwitch = !_locked;
     final partial = partialProgress(session);
-    final notice = c.notice;
-    final question = c.longVideoQuestion;
+    // Сообщения контроллера (notice) и вопрос о длинном ролике показывает
+    // оболочка над любым экраном — здесь они вышли бы вторым экземпляром.
     final busyNotSaving = c.isBusy && !c.isSaving;
     // Файлы в папке программы: после сохранения показываем само видео,
     // до него — папку с субтитрами.
@@ -391,41 +392,6 @@ class _ReviewViewState extends State<ReviewView> {
                 ),
                 const SizedBox(height: 6),
                 const LinearProgressIndicator(),
-              ],
-            ),
-          ),
-        if (notice != null)
-          gap(
-            ReviewPlate(
-              key: const ValueKey('review-notice'),
-              color: kPlateYellow,
-              icon: Icons.info_outline,
-              iconColor: Colors.amber.shade900,
-              title: notice.title,
-              message: notice.hint,
-              onClose: c.dismissNotice,
-            ),
-          ),
-        if (question != null)
-          gap(
-            ReviewPlate(
-              key: const ValueKey('review-long-video'),
-              color: kPlateYellow,
-              icon: Icons.schedule,
-              iconColor: Colors.amber.shade900,
-              title: 'Ролик длинный — ${_minutes(question.duration)}',
-              message:
-                  'Распознавание займёт время и оплачивается по '
-                  'длительности. Продолжить?',
-              actions: [
-                FilledButton(
-                  onPressed: () => unawaited(c.confirmLongVideo()),
-                  child: const Text('Продолжить'),
-                ),
-                TextButton(
-                  onPressed: c.declineLongVideo,
-                  child: const Text('Отмена'),
-                ),
               ],
             ),
           ),
@@ -494,12 +460,6 @@ class _ReviewViewState extends State<ReviewView> {
     );
   }
 
-  static String _minutes(Duration d) {
-    final h = d.inHours;
-    final m = d.inMinutes % 60;
-    return h > 0 ? '$h ч $m мин' : '${d.inMinutes} мин';
-  }
-
   Widget _playerArea(Session session) {
     final theme = Theme.of(context);
     return Column(
@@ -560,6 +520,7 @@ class _ReviewViewState extends State<ReviewView> {
     result: c.saveResult,
     error: c.saveError,
     errorLog: c.saveStatus == SaveStatus.failed ? c.recentLog() : '',
+    onSaveLog: () => unawaited(saveLogAndShow(context, c)),
     isMobile: c.isMobile,
     canSave: !_locked,
     showingResult: _showingResult,

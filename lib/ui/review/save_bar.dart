@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../../app/app_controller.dart';
 import '../../app/user_error.dart';
+import '../error_panel.dart';
 import 'cue_status.dart';
 import 'review_plate.dart';
 
@@ -24,6 +24,7 @@ class SaveBar extends StatelessWidget {
     required this.onViewResult,
     required this.onOtherVideo,
     required this.onErrorAction,
+    this.onSaveLog,
   });
 
   final SaveStatus status;
@@ -50,6 +51,9 @@ class SaveBar extends StatelessWidget {
   final VoidCallback onViewResult;
   final VoidCallback onOtherVideo;
   final ValueChanged<UserErrorAction> onErrorAction;
+
+  /// «Сохранить журнал» в технических деталях ошибки; null — кнопки нет.
+  final VoidCallback? onSaveLog;
 
   @override
   Widget build(BuildContext context) {
@@ -124,6 +128,7 @@ class SaveBar extends StatelessWidget {
                     : () => onErrorAction(failure.action),
                 actionEnabled:
                     canSave || failure.action != UserErrorAction.retry,
+                onSaveLog: onSaveLog,
               ),
               const SizedBox(height: 8),
             ],
@@ -152,12 +157,12 @@ class SaveBar extends StatelessWidget {
   }
 }
 
-/// Ошибка человеческим языком: заголовок, что делать, кнопка по смыслу и
-/// свёрнутые «Технические детали» с сырым текстом.
+/// Ошибка сохранения человеческим языком: заголовок, что делать, кнопка по
+/// смыслу и свёрнутые «Технические детали» с сырым текстом.
 ///
-/// Минимальная замена общей панели ошибок оболочки (`lib/ui/error_panel.dart`
-/// появляется параллельно в другой ветке): при слиянии её стоит заменить
-/// общей, чтобы ошибки выглядели одинаково на всех экранах.
+/// Компактная, в полосе сохранения: общая [ErrorPanel] рассчитана на весь
+/// экран. «Технические детали» — общие ([TechnicalDetails]), чтобы на всех
+/// экранах они выглядели и работали одинаково, со «Сохранить журнал».
 class ReviewErrorPanel extends StatelessWidget {
   const ReviewErrorPanel({
     super.key,
@@ -165,6 +170,7 @@ class ReviewErrorPanel extends StatelessWidget {
     this.log = '',
     this.onAction,
     this.actionEnabled = true,
+    this.onSaveLog,
   });
 
   final UserError error;
@@ -173,6 +179,7 @@ class ReviewErrorPanel extends StatelessWidget {
   final String log;
   final VoidCallback? onAction;
   final bool actionEnabled;
+  final VoidCallback? onSaveLog;
 
   String get _technical => [
     if (error.details.isNotEmpty) error.details,
@@ -225,35 +232,9 @@ class ReviewErrorPanel extends StatelessWidget {
                 ),
               ),
             if (technical.isNotEmpty)
-              Theme(
-                // Без линий сверху и снизу у раскрытого блока.
-                data: theme.copyWith(dividerColor: Colors.transparent),
-                child: ExpansionTile(
-                  tilePadding: const EdgeInsets.only(left: 34),
-                  childrenPadding: const EdgeInsets.only(left: 34, bottom: 8),
-                  expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                  title: Text(
-                    'Технические детали',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  children: [
-                    ConstrainedBox(
-                      constraints: const BoxConstraints(maxHeight: 200),
-                      child: SingleChildScrollView(
-                        child: SelectableText(
-                          technical,
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                    ),
-                    TextButton.icon(
-                      onPressed: () =>
-                          Clipboard.setData(ClipboardData(text: technical)),
-                      icon: const Icon(Icons.copy, size: 16),
-                      label: const Text('Скопировать'),
-                    ),
-                  ],
-                ),
+              Padding(
+                padding: const EdgeInsets.only(left: 34, top: 8, bottom: 8),
+                child: TechnicalDetails(text: technical, onSaveLog: onSaveLog),
               ),
           ],
         ),

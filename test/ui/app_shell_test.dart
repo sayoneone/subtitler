@@ -23,6 +23,48 @@ import '../support/fake_preview_player.dart';
 import 'support.dart';
 
 void main() {
+  testWidgets('на экране предпросмотра сообщение и вопрос о длинном ролике '
+      'показываются по одному разу', (tester) async {
+    // Их показывает оболочка над любым экраном. Экран предпросмотра рисовал
+    // их ещё раз у себя, и следователь видел одно и то же дважды: плашку
+    // над экраном и такую же в шапке, диалог и плашку с теми же кнопками.
+    final h = await started();
+    final session = sampleSession();
+    h.controller.debugEmulate(stage: AppStage.review, session: session);
+    await pumpApp(tester, h.controller);
+
+    h.controller.debugEmulate(
+      notice: const UserError(
+        title: 'Не удалось переключить язык',
+        hint: 'Повторите через минуту.',
+      ),
+    );
+    await tester.pump();
+    expect(find.text('Не удалось переключить язык'), findsOneWidget);
+
+    h.controller.dismissNotice();
+    h.controller.debugEmulate(
+      longVideoQuestion: LongVideoQuestion(
+        videoPath: session.videoPath,
+        duration: const Duration(minutes: 42),
+      ),
+    );
+    // Не pumpAndSettle: плеер-подделка оболочки не «загружает» видео, и в
+    // кадре крутится индикатор ожидания первого кадра.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.textContaining('Ролик длинный'), findsNothing,
+        reason: 'вопрос задаёт диалог оболочки, второй плашки быть не должно');
+
+    await tester.tap(find.descendant(
+        of: find.byType(AlertDialog), matching: find.text('Отмена')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(h.controller.longVideoQuestion, isNull);
+    await closeApp(tester, h);
+  });
+
   testWidgets('главный экран: ни слова про ffmpeg и язык, журнал закрыт',
       (tester) async {
     final h = await started();
