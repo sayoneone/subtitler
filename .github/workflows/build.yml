@@ -118,19 +118,42 @@ jobs:
           # на машине следователя.
           # ffmpeg_kit_flutter_new_plugin.dll в списке не по ошибке: его
           # импортирует сам exe, и без него приложение молча не запускается.
+          # То же с плеером предпросмотра: exe импортирует плагины media_kit,
+          # а media_kit_video_plugin.dll — libmpv-2.dll (плеер со своим ffmpeg
+          # внутри), libEGL.dll и libGLESv2.dll (ANGLE). Нет любой из них —
+          # приложение не стартует вовсе. d3dcompiler_47.dll ANGLE грузит сам
+          # при запуске. Заодно список ловит пересечение имён: если удаление
+          # ffmpeg-kit выше однажды заденет DLL плеера, сборка упадёт здесь.
           foreach ($needed in @('subtitler.exe','flutter_windows.dll','msvcp140.dll',
                                 'vcruntime140.dll','vcruntime140_1.dll',
                                 'ffmpeg_kit_flutter_new_plugin.dll',
+                                'media_kit_video_plugin.dll',
+                                'media_kit_libs_windows_video_plugin.dll',
+                                'libmpv-2.dll','libEGL.dll','libGLESv2.dll',
+                                'd3dcompiler_47.dll',
                                 'tools/ffmpeg/ffmpeg.exe','fonts/NotoSans-Regular.ttf')) {
             if (-not (Test-Path (Join-Path dist $needed))) { throw "В сборке нет $needed" }
+          }
+
+          # Груз ffmpeg-kit ловим прямо по именам, а не только по размеру:
+          # с плеером папка и так выросла, и возврат пары DLL порог размера
+          # может не заметить. У libmpv ffmpeg вшит внутрь, отдельных
+          # avcodec-*.dll у него нет — любая такая DLL в папке от ffmpeg-kit.
+          $kitLeft = Get-ChildItem dist -Recurse -File |
+                     Where-Object { $_.Name -match '^(libffmpegkit.*|av(codec|format|filter|util|device)-\d+|sw(scale|resample)-\d+)\.dll$' }
+          if ($kitLeft) {
+            throw "В сборку вернулся ffmpeg-kit: $(($kitLeft.Name) -join ', ')"
           }
 
           $mb = [math]::Round((Get-ChildItem dist -Recurse | Measure-Object Length -Sum).Sum / 1MB, 1)
           Write-Host "Размер распакованной папки: $mb МБ"
           # Размер — тоже проверка. Если лишняя сборка ffmpeg вернётся в архив,
-          # папка вырастет почти вдвое, и узнать об этом надо здесь, а не из
-          # жалоб на скачивание 250 МБ по служебной сети.
-          if ($mb -gt 180) {
+          # папка вырастет на 117 МБ, и узнать об этом надо здесь, а не из
+          # жалоб на скачивание по служебной сети.
+          # Из чего складываются 200 МБ: ffmpeg.exe ~98, Flutter и плагины ~31,
+          # плеер media_kit (libmpv, ANGLE) ~46 — по замеру 177 МБ, остальное запас
+          # на рост зависимостей. Возврат ffmpeg-kit (+117 МБ) порог пробьёт.
+          if ($mb -gt 200) {
             throw "Папка выросла до $mb МБ — похоже, в неё вернулась лишняя сборка ffmpeg"
           }
           Compress-Archive -Path dist/* -DestinationPath subtitler-windows-x64.zip
@@ -201,6 +224,18 @@ jobs:
             echo "Ожидалась только arm64-v8a: лишние архитектуры утраивают размер"
             exit 1
           fi
+
+      # На Android предпросмотр — video_player (ExoPlayer), нативных библиотек
+      # плеера в APK быть не должно. libmpv.so появляется, если кто-то добавит
+      # media_kit_libs_video или media_kit_libs_android_video: с ними в APK
+      # едет вторая копия ffmpeg рядом с нашей, было 271 МБ вместо 60.
+      - name: Проверить, что в APK нет libmpv
+        run: |
+          if unzip -l build/app/outputs/flutter-apk/app-release.apk | grep -q 'libmpv\.so'; then
+            echo "В APK попал libmpv.so — подключены библиотеки media_kit для Android"
+            exit 1
+          fi
+          echo "libmpv.so в APK нет"
 
       - uses: actions/upload-artifact@v4
         with:

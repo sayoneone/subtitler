@@ -33,6 +33,7 @@
 ```bash
 flutter pub get
 flutter test          # 141 тест
+flutter test integration_test -d windows   # живой плеер предпросмотра
 flutter build apk --release          # Android, ~60 МБ, arm64
 flutter build macos --release        # стенд для отладки
 ```
@@ -86,12 +87,17 @@ git push origin v0.1.0
 
 | Платформа | Что скачивать | Размер |
 |---|---|---|
-| Windows 10/11 x64 | `subtitler-windows-x64.zip` — распаковать и запустить `subtitler.exe` | ~49 МБ |
+| Windows 10/11 x64 | `subtitler-windows-x64.zip` — распаковать и запустить `subtitler.exe` | ~69 МБ (распакованный — ~177 МБ) |
 | Android 8+, arm64 | `app-release.apk` | ~60 МБ |
 
-Устанавливать ничего не нужно: ffmpeg, шрифт и библиотеки Visual C++ лежат
-внутри. APK пока подписан отладочным ключом — перед раздачей нужен свой
-keystore.
+Устанавливать ничего не нужно: ffmpeg, плеер предпросмотра (libmpv и ANGLE),
+шрифт и библиотеки Visual C++ лежат внутри. APK пока подписан отладочным
+ключом — перед раздачей нужен свой keystore.
+
+**Для ИТ-службы.** Рядом с `subtitler.exe` лежат неподписанные DLL, в том
+числе `libmpv-2.dll`, `libEGL.dll`, `libGLESv2.dll`. Если на ПК действуют
+AppLocker или WDAC, папку программы нужно разрешить целиком: без любой из
+этих библиотек приложение не запустится.
 
 ## Статус
 
