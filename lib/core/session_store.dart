@@ -241,7 +241,7 @@ class SessionStore {
       if (session == null) {
         // Битый файл или схема новее нашей — как будто сессии нет. Затирать
         // его не будем: см. [_keepUnreadable].
-        log.warn('Файл сессии $path не читается: $problem');
+        log.warn('Файл сессии $path не читается: ${_describe(problem)}');
         continue;
       }
       _checked.add(path);
@@ -322,16 +322,34 @@ class SessionStore {
       return;
     }
     final aside = _asidePathFor(path);
+    final why = _describe(problem);
     try {
       await file.rename(aside);
     } on FileSystemException catch (e) {
-      log.warn('Файл сессии $path не читается ($problem), и отложить его '
+      log.warn('Файл сессии $path не читается ($why), и отложить его '
           'не удалось ($e) — не затираем, пишем в другое место');
       rethrow;
     }
-    log.warn('Файл сессии $path не читается ($problem) — он сохранён как '
+    log.warn('Файл сессии $path не читается ($why) — он сохранён как '
         '$aside, записываем новую сессию');
   }
+
+  /// Почему файл не читается — для журнала: вид ошибки и место, без
+  /// содержимого файла. `FormatException.toString()` приводит строку
+  /// исходного текста у места ошибки (dart:core, FormatException), а у
+  /// обрезанного файла это обычно перевод, правка следователя или
+  /// распознанная речь. `ArgumentError.toString()` приводит само неверное
+  /// значение. Журнал сохраняют и отправляют разработчику, его хвост
+  /// попадает в «Технические детали» — текста дела там быть не должно.
+  /// У `TypeError` в тексте только названия типов (проверено прогоном).
+  static String _describe(Object? problem) => switch (problem) {
+        FormatException(:final message, :final offset) =>
+          'FormatException: $message'
+              '${offset == null ? '' : ' (позиция $offset)'}',
+        ArgumentError(:final message) => 'ArgumentError: $message',
+        TypeError() => 'TypeError: $problem',
+        _ => '${problem.runtimeType}',
+      };
 
   /// `clip.mp4.subtitler.json` → `clip.mp4.subtitler.broken-20260925-184500.json`.
   static String _asidePathFor(String path) {

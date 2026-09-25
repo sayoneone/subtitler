@@ -119,6 +119,25 @@ void main() {
     expectKept(folder, original, log, probe);
   });
 
+  // Замечание ревью P2: текст FormatException из jsonDecode содержит
+  // строку файла у места ошибки, а у обрезанного файла это обычно перевод,
+  // правка следователя или распознанная речь. Журнал отправляют
+  // разработчику — материалов дела в нём быть не должно.
+  test('В журнал не попадает текст из обрезанного файла', () async {
+    final (_, log, _) = await detect((video) {
+      final full = sessionJson(video);
+      return full.substring(0, full.indexOf('правка следователя') + 10);
+    });
+    final journal = log.asText();
+    expect(journal, contains('не читается'),
+        reason: 'сам сбой в журнале виден');
+    expect(journal, contains('FormatException'));
+    for (final text in ['правка', 'ertaga']) {
+      expect(journal, isNot(contains(text)),
+          reason: 'текст из файла сессии в журнал не пишется');
+    }
+  });
+
   test('Неизвестный статус реплики — тоже нечитаемый файл, а не сбой',
       () async {
     late String original;
