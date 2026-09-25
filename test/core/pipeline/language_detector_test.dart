@@ -52,15 +52,17 @@ void main() {
         () {
       // Каждое из этих слов — обычное слово и узбекского, и турецкого:
       // ya'ni/yani «то есть», qarshi/karşı «против», ona «мать» / «ему»,
-      // qara «смотри» / kara «чёрный», oy «месяц» / «голос на выборах»…
+      // qara «смотри» / kara «чёрный», oy «месяц» / «голос на выборах»,
+      // qani «где?» / kanı «его кровь; мнение»…
       // Модель, которая написала его своими буквами, ничего чужого не
       // услышала.
       const uzbek = [
         "ya'ni", 'biri', 'beri', 'qarshi', 'yedi', 'ki', 'ona', 'sana', //
-        'bari', 'kimi', "yo'qsa", 'da',
+        'bari', 'kimi', "yo'qsa", 'da', 'qani',
       ];
       const turkish = [
         'ana', 'kara', 'ha', 'yo', 'halı', 'şart', 'sarı', 'oy', 'öz', 'yana',
+        'kanı',
       ];
       for (final word in uzbek) {
         expect(languageFeatures(word, 'uz-UZ', against: ['tr-TR']).foreign, 0,
@@ -220,6 +222,27 @@ void main() {
         ],
       }));
       expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+    });
+
+    test('Турецкая речь с «kanı»: реплики не расходятся, выбор уверенный',
+        () {
+      // Узбекская модель пишет услышанное «kanı» своим словом qani «где?».
+      // Если kanı — «чужое» слово у турецкой модели, первая реплика уходит
+      // к узбекскому, и появляется жёлтая плашка «возможно, два языка».
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'oğlumun burnu kanadı kanı mendille sildim sonra doktora götürdüm',
+          'doktor bir şey yok dedi akşam yemeğinden sonra uyudu',
+        ],
+        'uz-UZ': [
+          "o'g'lumun burnu qanadi qani mendille sildim sonra doktora goturdum",
+          'doktor bir shey yoq dedi aqsham yemeginden sonra uyudu',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+      expect(verdict.mixed, isFalse, reason: verdict.describe());
+      expect(verdict.confidence, LanguageConfidence.high,
+          reason: verdict.describe());
     });
 
     test('Узбекские приветствия на -misiz: турецкий не выбирается', () {

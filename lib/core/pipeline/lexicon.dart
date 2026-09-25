@@ -297,7 +297,7 @@ shu shuni shunga shunda shundan shuning shular
 o'sha o'shani o'shanga o'shanda ana mana ushbu
 bunday shunday unday qanday shunaqa bunaqa qanaqa
 nima nimani nimaga nimada nimadan nega nechta necha qancha uncha
-qayer qayerda qayerga qayerdan qachon qani
+qayer qayerda qayerga qayerdan qachon
 kim kimni kimga kimning kimdan qaysi mi
 va yoki ammo lekin biroq chunki agar ham hamda yo go'yo balki holbuki
 uchun bilan kabi qadar sari keyin oldin so'ng orqali haqida tomon birga boshqa
@@ -369,11 +369,11 @@ const List<String> _uzbekLookalikes = [
 /// считается своим у обеих моделей и выбор не сдвигает.
 ///
 /// Нарочно НЕ внесены слова, которые в одном из языков редкие: узбекские
-/// ham «тоже», kel «иди», uy «дом», mana «вот», xoʻp «ладно», axir «ведь»,
-/// qani «где же» (по-турецки ham — «сырой», kel — «лысый», mana — «смысл»,
-/// ahır — «хлев», kanı — «его кровь») и узбекское de «скажи» против самого
-/// частого турецкого de. В речи на своём языке они звучат несравнимо чаще,
-/// чем у соседа, и остаются признаком языка.
+/// ham «тоже», kel «иди», uy «дом», mana «вот», xoʻp «ладно», axir «ведь»
+/// (по-турецки ham — «сырой», kel — «лысый», mana — «смысл», ahır —
+/// «хлев») и узбекское de «скажи» против самого частого турецкого de.
+/// В речи на своём языке они звучат несравнимо чаще, чем у соседа, и
+/// остаются признаком языка.
 const List<(String, String)> _sharedTurkishUzbek = [
   ('yani', "ya'ni"), // то есть
   ('biri', 'biri'), // один из
@@ -399,6 +399,9 @@ const List<(String, String)> _sharedTurkishUzbek = [
   ('yana', 'yana'), // тур. «в сторону», узб. «ещё»
   ('bunca', 'buncha'), // столько (иначе — как турецкое -ınca)
   ('şunca', 'shuncha'), // столько
+  // Узб. «где?», «ну-ка». Тур. kanı — «его кровь», «кровь» в винительном
+  // и отдельное слово «мнение»: в записях о травмах и драках оно обычно.
+  ('kanı', 'qani'),
 ];
 
 // ---------------------------------------------------------------------------
