@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 
 import 'languages.dart';
+import 'logging.dart';
 import 'models.dart';
 import 'path_hash.dart';
 
@@ -16,7 +17,10 @@ import 'path_hash.dart';
 /// язык: вернуться к прежнему варианту можно бесплатно, вместе с правками.
 class SessionStore {
   final String fallbackDir;
-  SessionStore({required this.fallbackDir});
+  final DebugLog log;
+
+  SessionStore({required this.fallbackDir, DebugLog? log})
+      : log = log ?? DebugLog.instance;
 
   String sessionPathFor(String videoPath) => '$videoPath.subtitler.json';
 
@@ -165,15 +169,14 @@ class SessionStore {
       final file = File(path);
       final stat = file.statSync();
       if (stat.type != FileSystemEntityType.file) continue;
-      final Session session;
-      try {
-        final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-        session = Session.fromJson(json);
-      } on FormatException {
-        continue; // битый файл или схема новее нашей — как будто сессии нет
-      } on TypeError {
+      final (session, problem) = await _read(file);
+      if (session == null) {
+        // Битый файл или схема новее нашей — как будто сессии нет. Затирать
+        // его не будем: см. [_keepUnreadable].
+        log.warn('Файл сессии $path не читается: $problem');
         continue;
       }
+      _checked.add(path);
       if (!session.fingerprint.matches(actual)) continue;
       if (freshestTime == null || stat.modified.isAfter(freshestTime)) {
         freshest = session;
@@ -210,7 +213,8 @@ class SessionStore {
   /// чтения» или его держит другая программа без права удаления, —
   /// проверено на Windows. Тогда, как и при отказе прямой записи,
   /// сессия уходит в запасную папку, а временный файл удаляется.
-  static Future<void> _replace(String path, String content) async {
+  Future<void> _replace(String path, String content) async {
+    await _keepUnreadable(path);
     final temp = File('$path.tmp');
     try {
       await temp.writeAsString(content, flush: true);
@@ -222,6 +226,77 @@ class SessionStore {
         // Не удалось убрать за собой — не повод терять саму запись.
       }
       rethrow;
+    }
+    _checked.add(path);
+  }
+
+  /// Пути, которые в этом запуске уже прочитаны как сессия или записаны
+  /// нами: проверять их перед заменой ещё раз незачем.
+  final Set<String> _checked = {};
+
+  /// Не затирает файл сессии, который есть, но не читается: записан более
+  /// новой версией программы (у коллеги в общей папке дела), обрезан
+  /// сбоем, испорчен. В нём могут быть оплаченное распознавание и ручные
+  /// правки. Такой файл откладывается под именем
+  /// `<имя>.subtitler.broken-<время>.json` — его можно открыть новой
+  /// версией или восстановить, — это пишется в журнал, а работа идёт
+  /// дальше с новой сессией.
+  ///
+  /// Если отложить не удалось, [FileSystemException] уходит выше: запись
+  /// в этот путь не делается, сессия уходит в запасную папку.
+  Future<void> _keepUnreadable(String path) async {
+    if (_checked.contains(path)) return;
+    final file = File(path);
+    if (file.statSync().type != FileSystemEntityType.file) return;
+    final (session, problem) = await _read(file);
+    if (session != null) {
+      _checked.add(path);
+      return;
+    }
+    final aside = _asidePathFor(path);
+    try {
+      await file.rename(aside);
+    } on FileSystemException catch (e) {
+      log.warn('Файл сессии $path не читается ($problem), и отложить его '
+          'не удалось ($e) — не затираем, пишем в другое место');
+      rethrow;
+    }
+    log.warn('Файл сессии $path не читается ($problem) — он сохранён как '
+        '$aside, записываем новую сессию');
+  }
+
+  /// `clip.mp4.subtitler.json` → `clip.mp4.subtitler.broken-20260925-184500.json`.
+  static String _asidePathFor(String path) {
+    final stem =
+        path.endsWith('.json') ? path.substring(0, path.length - 5) : path;
+    final now = DateTime.now();
+    String two(int v) => v.toString().padLeft(2, '0');
+    final stamp = '${now.year}${two(now.month)}${two(now.day)}-'
+        '${two(now.hour)}${two(now.minute)}${two(now.second)}';
+    var aside = '$stem.broken-$stamp.json';
+    // Переименование поверх существующего файла его заменило бы.
+    for (var n = 2; File(aside).existsSync(); n++) {
+      aside = '$stem.broken-$stamp-$n.json';
+    }
+    return aside;
+  }
+
+  /// Сессия из [file] или `null` с причиной, если файл не читается как
+  /// сессия: обрезан (FormatException из jsonDecode), схема новее нашей
+  /// (FormatException из [Session.fromJson]), не те типы полей
+  /// (TypeError), неизвестное значение статуса или пометки
+  /// (ArgumentError). Ошибка чтения самого файла ([FileSystemException])
+  /// уходит выше.
+  static Future<(Session?, Object?)> _read(File file) async {
+    try {
+      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      return (Session.fromJson(json), null);
+    } on FormatException catch (e) {
+      return (null, e);
+    } on TypeError catch (e) {
+      return (null, e);
+    } on ArgumentError catch (e) {
+      return (null, e);
     }
   }
 }

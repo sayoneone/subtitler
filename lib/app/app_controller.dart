@@ -521,7 +521,7 @@ class AppController extends ChangeNotifier {
     log.info('Subtitler ${_appVersion ?? '(версия неизвестна)'}; '
         'ОС: ${services.osVersion()}');
 
-    _sessionStore = SessionStore(fallbackDir: runtime.supportDir);
+    _sessionStore = SessionStore(fallbackDir: runtime.supportDir, log: log);
     _settingsStore = services.settingsStore(runtime.supportDir, log);
     _settings = await _settingsStore!.load();
     log.info('Языки для автоопределения: '

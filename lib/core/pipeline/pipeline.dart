@@ -344,8 +344,9 @@ class Pipeline {
       probeTexts: recognized,
       cues: _withTexts(base.cues, winnerTexts),
     );
-    // Сохранённой сессии для этого видео нет (проверено выше) — затирать
-    // нечего.
+    // Подходящей сессии для этого видео нет (проверено выше). Файл, который
+    // есть, но не читается (схема новее, обрезанная запись), хранилище не
+    // затирает, а откладывает в сторону — см. SessionStore._keepUnreadable.
     await store.save(session);
     return LanguageProbe(session: session, verdict: verdict);
   }

@@ -465,6 +465,49 @@ void main() {
     });
   });
 
+  group('Нечитаемый файл сессии', () {
+    const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+
+    List<String> names(Directory dir) =>
+        dir.listSync().map((e) => p.basename(e.path)).toList()..sort();
+
+    test('Не затирается и тогда, когда подошла запасная сессия', () async {
+      // Рядом с видео — файл более новой версии программы, в запасной
+      // папке — наша прежняя сессия. Продолжение обработки пишет рядом с
+      // видео, но чужой файл остаётся цел.
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      final future = jsonEncode(sessionFor(video).toJson()
+        ..['schemaVersion'] = Session.currentSchemaVersion + 1);
+      File('$video.subtitler.json').writeAsStringSync(future);
+      File(store.fallbackPathFor(video))
+          .writeAsStringSync(jsonEncode(sessionFor(video).toJson()));
+
+      final loaded = await store.load(video, fp);
+      expect(loaded, isNotNull);
+      await store.save(loaded!);
+
+      final aside = names(tmp).where((n) => n.contains('.broken-')).toList();
+      expect(aside, hasLength(1));
+      expect(File('${tmp.path}/${aside.single}').readAsStringSync(), future);
+      expect((await store.load(video, fp))!.cues.single.ru, 'брат');
+    });
+
+    test('Читаемая сессия другого файла заменяется без лишних файлов',
+        () async {
+      // По этому пути теперь другое видео — прежняя сессия к нему не
+      // относится, откладывать её незачем.
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      File('$video.subtitler.json').writeAsStringSync(
+          jsonEncode(sessionFor(video, size: 999).toJson()));
+
+      await store.save(sessionFor(video));
+      expect(names(tmp), ['clip.mp4.subtitler.json']);
+      expect(await store.load(video, fp), isNotNull);
+    });
+  });
+
   test('Битый JSON не роняет приложение', () async {
     final video = '${tmp.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));
