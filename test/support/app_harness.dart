@@ -91,7 +91,13 @@ class AppHarness {
 
   int _copies = 0;
 
+  /// Освобождает контроллер и удаляет временную папку. Правки, которые
+  /// ещё ждут записи, отбрасываются: тест, которому нужен диск, вызывает
+  /// `flush()` или `save()` сам.
   Future<void> dispose() async {
+    controller.debugDiscardPendingEdits();
+    await controller.flush(); // только уже начатые записи
+    await controller.jobDone;
     controller.dispose();
     if (_ownsRoot) {
       try {
