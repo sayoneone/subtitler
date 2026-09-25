@@ -26,7 +26,10 @@ class _DebugScreenState extends State<DebugScreen>
     with SingleTickerProviderStateMixin {
   final _keyField = TextEditingController();
   final _ffmpegField = TextEditingController();
-  late final TabController _tabs = TabController(length: 2, vsync: this);
+  /// Вкладки нужны только узкому окну, но создаются сразу: ленивый
+  /// контроллер в широком окне впервые создавался бы в dispose(), когда
+  /// искать TickerMode у предков уже нельзя, — и закрытие стенда падало.
+  late final TabController _tabs;
   bool _dragging = false;
 
   /// Журнал занимает почти половину окна, а нужен не всегда — прячется
@@ -41,6 +44,7 @@ class _DebugScreenState extends State<DebugScreen>
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 2, vsync: this);
     c.addListener(_sync);
     c.init();
   }
