@@ -183,6 +183,53 @@ void main() {
     });
   });
 
+  group('Запуск с видео', () {
+    /// Контроллер, запущенный с видео в командной строке (его перетащили
+    /// на значок программы). Видео лежит в своей временной папке.
+    Future<(AppHarness, String)> launchedWith({String? storedKey = kTestApiKey})
+        async {
+      final dir = Directory.systemTemp.createTempSync('open_on_start_');
+      final video = p.join(dir.path, 'запись 1.mp4');
+      File(probeClip).copySync(video);
+      final h = makeTestController(
+          root: dir, storedKey: storedKey, openOnStart: video);
+      addTearDown(() async {
+        await h.dispose();
+        dir.deleteSync(recursive: true);
+      });
+      h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      return (h, video);
+    }
+
+    Future<void> waitForStage(AppController c, AppStage stage) async {
+      for (var i = 0; i < 600 && c.stage != stage; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(c.stage, stage);
+    }
+
+    test('Видео со значка открывается само, без «Выбрать файл»', () async {
+      final (h, video) = await launchedWith();
+      await h.controller.init();
+      await waitForStage(h.controller, AppStage.review);
+      expect(h.controller.videoPath, video);
+      expect(h.log.asText(), contains('Видео передано при запуске'));
+    });
+
+    test('Без ключа видео ждёт ключа и открывается сразу после него',
+        () async {
+      final (h, video) = await launchedWith(storedKey: null);
+      final c = h.controller;
+      await c.init();
+      expect(c.stage, AppStage.needsKey);
+      expect(c.videoPath, isNull, reason: 'без ключа обрабатывать нечем');
+
+      expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0004'), isTrue);
+      await waitForStage(c, AppStage.review);
+      expect(c.videoPath, video);
+    });
+  });
+
   group('Ключ', () {
     test('Обе проверки прошли — ключ сохранён, главный экран', () async {
       final h = await started(storedKey: null);

@@ -207,13 +207,29 @@ class AppController extends ChangeNotifier {
 
   final Duration longVideoThreshold;
 
+  /// [openOnStart] — видео, с которым программу запустили: его перетащили
+  /// на значок subtitler.exe или на ярлык. Открывается само, как только
+  /// программа готова к работе, — сразу при старте или после ввода ключа.
   AppController({
     AppServices? services,
     DebugLog? log,
     this.editSaveDelay = const Duration(milliseconds: 700),
     this.longVideoThreshold = kLongVideoThreshold,
+    String? openOnStart,
   })  : services = services ?? AppServices.real(),
-        log = log ?? DebugLog.instance;
+        log = log ?? DebugLog.instance,
+        _pendingVideo = openOnStart;
+
+  /// Видео из командной строки, ещё не открытое: ждёт главного экрана.
+  String? _pendingVideo;
+
+  void _openPendingVideo() {
+    final video = _pendingVideo;
+    if (video == null || _stage != AppStage.home) return;
+    _pendingVideo = null;
+    log.info('Видео передано при запуске: $video');
+    unawaited(openVideo(video));
+  }
 
   // ---------------------------------------------------------------- этап
 
@@ -572,6 +588,7 @@ class AppController extends ChangeNotifier {
       _stage = AppStage.needsKey;
     }
     _notify();
+    _openPendingVideo();
   }
 
   void _broken(UserError error) {
@@ -643,6 +660,7 @@ class AppController extends ChangeNotifier {
       _stage = _returnStage(previous);
     }
     _notify();
+    _openPendingVideo();
     return true;
   }
 

@@ -3,11 +3,12 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'app/app_controller.dart';
 import 'app/diagnostics.dart';
+import 'app/launch_args.dart';
 import 'core/logging.dart';
 import 'ui/app_shell.dart';
 import 'ui/player/preview_player.dart';
 
-void main() {
+void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   final log = DebugLog.instance;
   // Первым делом: всё, что упадёт дальше, должно попасть в журнал, а не
@@ -16,7 +17,10 @@ void main() {
   initPreviewPlayers(log: log);
   // Настоящие сервисы (AppServices.real). Отладочный стенд открывается из
   // меню и берёт у контроллера уже готовые папки, ffmpeg и хранилище.
-  runApp(SubtitlerApp(controller: AppController(log: log)));
+  // Видео, перетащенное на значок программы, приходит аргументом запуска.
+  runApp(SubtitlerApp(
+    controller: AppController(log: log, openOnStart: videoArgument(args)),
+  ));
 }
 
 class SubtitlerApp extends StatelessWidget {

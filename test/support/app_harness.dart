@@ -131,6 +131,7 @@ AppHarness makeTestController({
   Directory? root,
   Duration editSaveDelay = const Duration(hours: 1),
   Duration longVideoThreshold = kLongVideoThreshold,
+  String? openOnStart,
 }) {
   final dir = root ?? Directory.systemTemp.createTempSync('app_harness_');
   final support = p.join(dir.path, 'support');
@@ -203,6 +204,7 @@ AppHarness makeTestController({
     log: log,
     editSaveDelay: editSaveDelay,
     longVideoThreshold: longVideoThreshold,
+    openOnStart: openOnStart,
   );
   return harness;
 }
