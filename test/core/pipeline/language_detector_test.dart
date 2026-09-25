@@ -53,16 +53,16 @@ void main() {
       // Каждое из этих слов — обычное слово и узбекского, и турецкого:
       // ya'ni/yani «то есть», qarshi/karşı «против», ona «мать» / «ему»,
       // qara «смотри» / kara «чёрный», oy «месяц» / «голос на выборах»,
-      // qani «где?» / kanı «его кровь; мнение»…
+      // qani «где?» / kanı «его кровь; мнение», yetti «семь» / «хватило»…
       // Модель, которая написала его своими буквами, ничего чужого не
       // услышала.
       const uzbek = [
         "ya'ni", 'biri', 'beri', 'qarshi', 'yedi', 'ki', 'ona', 'sana', //
-        'bari', 'kimi', "yo'qsa", 'da', 'qani',
+        'bari', 'kimi', "yo'qsa", 'da', 'qani', 'yetti',
       ];
       const turkish = [
         'ana', 'kara', 'ha', 'yo', 'halı', 'şart', 'sarı', 'oy', 'öz', 'yana',
-        'kanı',
+        'kanı', 'yetti',
       ];
       for (final word in uzbek) {
         expect(languageFeatures(word, 'uz-UZ', against: ['tr-TR']).foreign, 0,
@@ -74,6 +74,22 @@ void main() {
       }
     });
 
+    test('Вводное «значит» — своё слово у обеих моделей', () {
+      // Узбекское demak и турецкое demek звучат в речи постоянно. Будь
+      // одно из них только окончанием -mak/-mek, калька у соседа получала бы
+      // больше, чем слово у своей модели.
+      expect(languageFeatures('demak', 'uz-UZ', against: ['tr-TR']).own, 1);
+      expect(languageFeatures('demek', 'tr-TR', against: ['uz-UZ']).own, 1);
+    });
+
+    test('Слово, редкое у соседа, остаётся признаком своего языка', () {
+      // Узбекское sal «немного» — обычное наречие, а турецкое sal «отпусти»
+      // (и «плот») редкое: вместо него говорят bırak. Решение записано в
+      // lexicon.dart, тест не даёт тихо сделать sal общим словом.
+      expect(languageFeatures('sal', 'uz-UZ', against: ['tr-TR']).own, 1);
+      expect(languageFeatures('sal', 'tr-TR', against: ['uz-UZ']).foreign, 1);
+    });
+
     test('Чужое окончание работает против варианта', () {
       final f = languageFeatures('chiqiyorum', 'uz-UZ', against: ['tr-TR']);
       expect(f.foreignSuffix, 1);
@@ -82,11 +98,16 @@ void main() {
 
     test('Обычные узбекские слова не выдаются за турецкие окончания', () {
       // Вопрос на -misiz, слова на -mish и -ajak, shuncha/buncha, kechagi
-      // по скелету похожи на турецкие -mışız, -mış, -acak, -ınca.
+      // по скелету похожи на турецкие -mışız, -mış, -acak, -ınca;
+      // ko'pincha, tushuncha и chiqquncha — на -ınca, demak, yemak, ichmak
+      // и ermak — на -mak, ziyorat — на -iyor.
       const words = [
         'yaxshimisiz', 'tinchmisiz', 'bormisiz', 'tayyormisiz', 'turmush', //
         "o'tmish", 'kumush', 'qilmish', 'kelajak', 'kelajakda', "bo'lajak",
         'kechagi', 'shuncha', 'buncha', "ko'mak", 'ixtiyori',
+        "ko'pincha", 'tushuncha', 'chiqquncha', 'tikkuncha', 'demak', 'yemak',
+        'ichmak', 'ermak', 'ziyorat', 'kelajagimiz', 'turmushim',
+        "o'tmishim",
       ];
       for (final word in words) {
         final f = languageFeatures(word, 'uz-UZ', against: ['tr-TR']);
@@ -95,15 +116,21 @@ void main() {
       }
     });
 
-    test('Турецкий дательный на -ğa и слова на -ka не выдаются за узбекские',
-        () {
+    test('Обычные турецкие слова не выдаются за узбекские окончания', () {
       // По скелету ğ = g, и sokağa совпадала с узбекским дательным -ga,
       // doğan — с причастием -gan, arka и şaka — с дательным -ka. -mışız
-      // не должно совпасть с узбекским вопросом -misiz.
+      // не должно совпасть с узбекским вопросом -misiz. kavga, dalga,
+      // karga, morga оканчиваются как дательный -ga, kaygan, yorgan и
+      // organ — как причастие -gan, aman, anlaman и yapmaman — как -aman
+      // «я …-ю», kendimi и adımı — как вопрос -dimi.
       const words = [
         'sokağa', 'çocuğa', 'sağa', 'yatağa', 'ayağa', 'dağa', 'bardağa', //
         'dağı', 'doğan', 'soğan', 'arka', 'şaka', 'halka', 'fabrika', 'yaka',
         'kocaman', 'kahraman', 'gelmişiz',
+        'kavga', 'dalga', 'karga', 'morga', 'kaygan', 'yorgan', 'yorganı',
+        'yorganda', 'organ', 'organlar', 'aman', 'koskocaman', 'anlaman',
+        'başlaman', 'toplaman', 'ağlaman', 'yapmaman', 'olmaman', 'kendimi',
+        'adımı', 'derdimi',
       ];
       for (final word in words) {
         final f = languageFeatures(word, 'tr-TR', against: ['uz-UZ']);
@@ -240,6 +267,45 @@ void main() {
         ],
       }));
       expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+      expect(verdict.mixed, isFalse, reason: verdict.describe());
+      expect(verdict.confidence, LanguageConfidence.high,
+          reason: verdict.describe());
+    });
+
+    test('Турецкая бытовая речь с aman, kavga, yetti: выбор уверенный', () {
+      // Обычные турецкие слова, похожие на узбекские окончания или слова,
+      // не должны делать выбор неуверенным.
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'aman dikkat et yollar çok kaygan dün kendimi zor tuttum',
+          'çocuklar yine kavga etti yetti artık yorganı toplaman lazım dedim',
+        ],
+        'uz-UZ': [
+          'aman dikkat et yollar chok kaygan dun kendimi zor tuttum',
+          "cho'juqlar yine kavga etti yetti artiq yorgani toplaman lazim dedim",
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+      expect(verdict.mixed, isFalse, reason: verdict.describe());
+      expect(verdict.confidence, LanguageConfidence.high,
+          reason: verdict.describe());
+    });
+
+    test("Узбекская бытовая речь с demak, ko'pincha, tushuncha: выбор уверенный",
+        () {
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': [
+          'demak ertaga bozorga borib yemak ichmak olib kelamiz',
+          "akam ko'pincha ishdan chiqquncha telefonni olmaydi demak band",
+          "bu masalada hech qanday tushuncha yo'q edi demak qaytadan so'raymiz",
+        ],
+        'tr-TR': [
+          'demek ertağa bazarga barıp yemek içmek alıp kelamız',
+          'akam köpinçe işten çıkkunça telefonnu almaydı demek band',
+          'bu masalada hiç kanday tuşunça yok edi demek kaytadan soraymız',
+        ],
+      }));
+      expect(verdict.lang, 'uz-UZ', reason: verdict.describe());
       expect(verdict.mixed, isFalse, reason: verdict.describe());
       expect(verdict.confidence, LanguageConfidence.high,
           reason: verdict.describe());

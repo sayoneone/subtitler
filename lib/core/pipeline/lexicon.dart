@@ -236,7 +236,7 @@ ne neyi neye neden nerede nereye nereden nerde nasıl niye niçin
 kim kimi kime kimin kimse hangi hangisi kaç kaçta
 mı mi mu mü mısın misin musun müsün mıyım miyim
 ve veya ya yahut ama fakat ancak lakin çünkü eğer ki de da hem yoksa madem
-oysa sanki halbuki gerçi
+oysa sanki halbuki gerçi demek
 için gibi kadar göre karşı doğru beri sonra önce rağmen dolayı ile birlikte
 başka
 bile daha en çok az pek hiç hep her hemen şimdi artık zaten yine gene sadece
@@ -271,12 +271,34 @@ const List<String> _turkishSuffixes = [
   r's[iu]n[iu]z$', // 2-е лицо мн. ч.: gelsiniz
 ];
 
-/// Турецкие слова, похожие на узбекское -aman «я …-ю»: kocaman «огромный»,
-/// kahraman «герой», yaman «ловкий». Отглагольное -man после основы на -a
-/// (anlaman «чтобы ты понял») от узбекского -aman (olaman «возьму») по
-/// буквам не отличить — оно оставлено.
+/// Обычные турецкие слова, похожие на узбекские окончания.
+///
+/// - На -aman «я …-ю»: aman «ой, осторожно», (kos)kocaman «огромный»,
+///   kahraman «герой», yaman «ловкий».
+/// - Отглагольное -man «чтобы ты …» после основы на согласную + la
+///   (anlaman, başlaman, toplaman) и отрицательное -maman (yapmaman,
+///   olmaman). Узбекское -aman стоит только после основы на согласную
+///   (boraman, olaman), а основы на -la берут -yman (ishlayman,
+///   boshlayman). Поэтому «согласная + laman» у узбекской модели не
+///   встречается, а -maman — только у редких основ на m (yumaman
+///   «зажмурюсь»). Прочие основы на -a (araman, yaşaman, oynaman) по
+///   буквам не отличить от узбекских boraman, tushaman, tushunaman — они
+///   оставлены.
+/// - На дательный -ga: kavga «драка», dalga «волна», karga «ворона»,
+///   morga «в морг».
+/// - На причастие -gan: kaygan «скользкий», yorgan «одеяло», organ «орган».
+/// - На вопрос -dimi: kendimi «себя», adımı «моё имя», derdimi «мою беду».
+///
+/// Редкие в речи слова (saman, keman, gaga, slogan, hakka, turizmi) не
+/// внесены. alıngan «обидчивый» тоже: так турецкая модель может записать
+/// узбекское olingan «взятый».
 const List<String> _turkishLookalikes = [
-  r'^(koc|kahr|y)aman$',
+  r'^(koskoc|koc|kahr|y)?aman$',
+  r'[^aeiou]laman$',
+  r'maman$',
+  r'^(kav|dal|kar|mor)ga$',
+  r'^(kay|yor|or)gan(i|da|dan|lar)?$',
+  r'^(kend|ad|derd)imi$',
 ];
 
 // ---------------------------------------------------------------------------
@@ -299,7 +321,7 @@ bunday shunday unday qanday shunaqa bunaqa qanaqa
 nima nimani nimaga nimada nimadan nega nechta necha qancha uncha
 qayer qayerda qayerga qayerdan qachon
 kim kimni kimga kimning kimdan qaysi mi
-va yoki ammo lekin biroq chunki agar ham hamda yo go'yo balki holbuki
+va yoki ammo lekin biroq chunki agar ham hamda yo go'yo balki holbuki demak
 uchun bilan kabi qadar sari keyin oldin so'ng orqali haqida tomon birga boshqa
 bo'yicha ko'ra tufayli ichida oldida
 faqat yana hali hozir endi hech hamma har juda ko'p oz sal eng albatta
@@ -339,17 +361,33 @@ const List<String> _uzbekSuffixes = [
   r'mi(siz|san)$', // вопрос: yaxshimisiz, tinchmisan
 ];
 
-/// Узбекские слова, похожие на турецкие окончания: на -mish (turmush
-/// «жизнь», o'tmish «прошлое», kumush «серебро») — как турецкое -mış; на
-/// -ajak (kelajak «будущее», bo'lajak «будущий») — как -acak; ko'mak
-/// «помощь» — как -mak; ixtiyor «воля» — как -iyor. Узбекское diyor
-/// «край» сюда нарочно не внесено: турецкое diyor «говорит» — одно из
-/// самых частых слов.
+/// Узбекские слова, похожие на турецкие окончания:
+///
+/// - на -mish (turmush «жизнь», o'tmish «прошлое», kumush «серебро») и
+///   turmushim, o'tmishim — как турецкое -mış, -mışım;
+/// - на -ajak (kelajak «будущее», kelajagimiz, bo'lajak «будущий») — как
+///   -acak;
+/// - ko'mak «помощь», yemak «еда», ichmak «питьё» (yemak-ichmak), ermak
+///   «забава» — как -mak;
+/// - ko'pincha «чаще всего», tushuncha «понятие» и -quncha/-kuncha «пока
+///   не …» после q и k (chiqquncha, tikkuncha) — как -ınca. В турецком
+///   k перед -ınca не удваивается (çıkınca, bakınca), так что kk здесь
+///   только узбекское;
+/// - ixtiyor «воля», ziyorat «посещение святых мест» — как -iyor.
+///
+/// Узбекское diyor «край» сюда нарочно не внесено: турецкое diyor
+/// «говорит» — одно из самых частых слов. demak «значит» не здесь, а в
+/// словаре: это частое вводное слово, и в паре с турецким demek оно
+/// должно быть своим у обеих моделей.
 const List<String> _uzbekLookalikes = [
   r'm[iu]ş(l[ae]r)?$',
-  r'^(kel|bol)acak',
+  r'^(turmuş|otmiş)',
+  r'^(kel|bol)aca[kg]',
   r'^komak',
-  r'^ihtiyor',
+  r'^(ye|ic|er)mak$',
+  r'^(kop|tuş)[iu]nc[ae]$',
+  r'kk[iu]nc[ae]$',
+  r'^(ihtiyor|ziyor)',
 ];
 
 // ---------------------------------------------------------------------------
@@ -374,6 +412,12 @@ const List<String> _uzbekLookalikes = [
 /// «хлев») и узбекское de «скажи» против самого частого турецкого de.
 /// В речи на своём языке они звучат несравнимо чаще, чем у соседа, и
 /// остаются признаком языка.
+///
+/// Так же оставлено узбекское sal «немного» — обиходное наречие. По-турецки
+/// sal — просторечное «отпусти» (обычно говорят bırak) и «плот». В
+/// новостном корпусе Лейпцига (tur_newscrawl_2013_1M) sal встречается 5 раз,
+/// а bırak — 133. Среди 1240 самых частых слов турецких субтитров
+/// (OpenSubtitles, список Викисловаря) sal нет, а bırak — 219-е.
 const List<(String, String)> _sharedTurkishUzbek = [
   ('yani', "ya'ni"), // то есть
   ('biri', 'biri'), // один из
@@ -402,6 +446,7 @@ const List<(String, String)> _sharedTurkishUzbek = [
   // Узб. «где?», «ну-ка». Тур. kanı — «его кровь», «кровь» в винительном
   // и отдельное слово «мнение»: в записях о травмах и драках оно обычно.
   ('kanı', 'qani'),
+  ('yetti', 'yetti'), // тур. «хватило», узб. «семь»
 ];
 
 // ---------------------------------------------------------------------------
