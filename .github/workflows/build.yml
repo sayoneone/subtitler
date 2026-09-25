@@ -183,12 +183,18 @@ jobs:
             if (-not $dumpbin) { throw "Не найден dumpbin.exe" }
             Write-Host "::notice title=Проверить импорты DLL::dumpbin: $($dumpbin.FullName)"
 
-            # zlib.dll приезжает с ANGLE плеера. Её никто не загружает: ни одна
-            # DLL папки её не импортирует и не называет по имени. Сама она собрана
-            # с отладочным CRT (ucrtbased.dll, VCRUNTIME140D.dll) и на чистой
-            # машине не загрузилась бы. Её импорты не проверяем, пока её
-            # не импортирует кто-то ещё; тогда проверка ниже упадёт.
-            $unused = @('zlib.dll')
+            # DLL, которые на Windows не загружаются, — их импорты не проверяем,
+            # пока их не импортирует кто-то из папки (тогда проверка упадёт):
+            # - zlib.dll приезжает с ANGLE плеера. Ни одна DLL папки её не
+            #   импортирует и не называет по имени. Собрана с отладочным CRT
+            #   (ucrtbased.dll, VCRUNTIME140D.dll).
+            # - dartjni.dll собирает пакет jni (его тянет path_provider_android),
+            #   и только там, где стоит Java: на раннере она есть, на машине
+            #   разработчика — не всегда. Импортирует jvm.dll, которой у
+            #   следователя нет. Вызывается лишь из кода для Android; на Windows
+            #   пути даёт path_provider_windows. С ней вышли 0.1.0 и 0.1.1 и на
+            #   ПК без Java запускались.
+            $unused = @('zlib.dll', 'dartjni.dll')
 
             $pes = Get-ChildItem dist -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }
             $deps = @{}
