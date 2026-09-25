@@ -289,6 +289,9 @@ class AppController extends ChangeNotifier {
       log.info('Программу запустили ещё раз — выводим окно вперёд');
       return;
     }
+    // До первой записи с этим путём: видео может и не открыться (программа
+    // занята), а openVideo прятал бы папку уже после этой строки.
+    log.hideFolderOf(video);
     log.info('Видео передано повторным запуском: $video');
     switch (_stage) {
       case AppStage.starting || AppStage.needsKey:

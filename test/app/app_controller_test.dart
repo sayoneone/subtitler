@@ -417,6 +417,30 @@ void main() {
       expect(c.videoPath, video);
     });
 
+    // Путь от повторного запуска попадает в журнал раньше, чем openVideo
+    // спрячет его папку, а на занятой программе openVideo не зовётся
+    // вовсе.
+    test('папка видео в журнал не попадает — ни на главном экране, ни на '
+        'занятой программе', () async {
+      final (h, _, _) = await turkishVideo();
+      final c = h.controller;
+      final video = h.copyVideo(probeClip,
+          folder: p.join('Дела', 'Дело №7 (тест)'), name: 'clip.mp4');
+      c.receiveFromAnotherLaunch(video);
+      for (var i = 0; i < 600 && c.stage != AppStage.review; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(c.stage, AppStage.review);
+
+      c.receiveFromAnotherLaunch(
+          p.join(h.root.path, 'Дела', 'Дело №8 (тест)', 'ещё.mp4'));
+      expect(c.notice?.title, busyTitle);
+
+      expect(h.log.asText(), isNot(contains('Дело №7')));
+      expect(h.log.asText(), isNot(contains('Дело №8')));
+      expect(h.log.asText(), contains('ещё.mp4'));
+    });
+
     test('запуск без видео только выводит окно вперёд', () async {
       final h = await started();
       h.controller.receiveFromAnotherLaunch(null);
