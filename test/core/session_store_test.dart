@@ -328,6 +328,86 @@ void main() {
           p.join(fallback.path, 'VID_0001.mp4.$hash.subtitler.uz-UZ.json'));
     });
 
+    // Хеш в имени запасного файла зависит от полного пути к видео. Путь
+    // к тому же видео меняется: защищённую флешку вставили под другой
+    // буквой, в сетевую папку «только на чтение» зашли не через Z:, а
+    // через \\сервер\папка. Сессию надо найти и тогда — иначе ролик
+    // оплачивается заново, а правки остаются в осиротевшем файле.
+    group('Путь к тому же видео сменился', () {
+      final yesterday = DateTime.now().subtract(const Duration(days: 1));
+      String onDrive(String drive) =>
+          '${tmp.path}/носитель $drive/дело/VID_0001.mp4';
+      Session withRu(Session s, String ru) =>
+          s.copyWith(cues: [s.cues.single.copyWith(ru: ru)]);
+
+      test('сессия и резервная копия находятся по новому пути', () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        final onE = onDrive('E');
+        final onF = onDrive('F');
+        expect(
+            await store.save(withRu(sessionFor(onE), 'правка следователя')),
+            store.fallbackPathFor(onE));
+        await store.saveBackup(sessionFor(onE).copyWith(lang: 'uz-UZ'));
+        expect(store.fallbackPathFor(onF), isNot(store.fallbackPathFor(onE)));
+
+        final loaded = await store.load(onF, fpA);
+        expect(loaded, isNotNull, reason: 'иначе ролик оплачивается заново');
+        expect(loaded!.cues.single.ru, 'правка следователя');
+        expect(loaded.videoPath, onF,
+            reason: 'дальше пишем уже по новому пути');
+        expect((await store.loadBackup(onF, 'uz-UZ', fpA))?.lang, 'uz-UZ');
+        expect(await store.backupLanguages(onF, fpA), {'uz-UZ'});
+      });
+
+      test('одноимённое видео другого дела не подходит', () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        await store.save(sessionFor(onDrive('E')));
+        await store.saveBackup(sessionFor(onDrive('E')).copyWith(lang: 'uz-UZ'));
+
+        expect(await store.load(onDrive('F'), fpB), isNull,
+            reason: 'отпечаток другой — это другое видео');
+        expect(await store.backupLanguages(onDrive('F'), fpB), isEmpty);
+      });
+
+      test('из нескольких подходящих берётся самая свежая', () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        final onE = onDrive('E');
+        final onG = onDrive('G');
+        await store.save(withRu(sessionFor(onE), 'старый текст'));
+        File(store.fallbackPathFor(onE)).setLastModifiedSync(yesterday);
+        await store.save(withRu(sessionFor(onG), 'правка следователя'));
+
+        final onF = onDrive('F');
+        final loaded = await store.load(onF, fpA);
+        expect(loaded!.cues.single.ru, 'правка следователя');
+
+        // Правка по новому пути пишется под своим именем и дальше
+        // читается она, а не прежние файлы.
+        await store.save(withRu(loaded, 'правка на F'));
+        expect(File(store.fallbackPathFor(onF)).existsSync(), isTrue);
+        expect((await store.load(onF, fpA))!.cues.single.ru, 'правка на F');
+        expect(File(store.fallbackPathFor(onE)).readAsStringSync(),
+            contains('старый текст'), reason: 'чужие файлы не переписываются');
+      });
+
+      test('посторонние файлы запасной папки не читаются', () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        final onE = onDrive('E');
+        final json = jsonEncode(sessionFor(onE).toJson());
+        // Похожие имена, но не сессия этого видео: другое видео, у
+        // которого имя начинается так же, и отложенный нечитаемый файл.
+        for (final name in [
+          'VID_0001.mp4.bak.1a2b3c4d.subtitler.json',
+          'XVID_0001.mp4.1a2b3c4d.subtitler.json',
+          'VID_0001.mp4.1a2b3c4d.subtitler.broken-20260101-000000.json',
+          'VID_0001.mp4.1a2b3c4d.subtitler.json.tmp',
+        ]) {
+          File(p.join(fallback.path, name)).writeAsStringSync(json);
+        }
+        expect(await store.load(onDrive('F'), fpA), isNull);
+      });
+    });
+
     test('Сессия и копия под прежним именем читаются, пишутся под новым',
         () async {
       final store = SessionStore(fallbackDir: fallback.path);

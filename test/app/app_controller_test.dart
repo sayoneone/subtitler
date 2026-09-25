@@ -1052,6 +1052,45 @@ void main() {
       expect(File(beside(videoB, '_ru.srt')).existsSync(), isTrue);
     });
 
+    // Замечание ревью P1: имя сессии в папке программы зависит от полного
+    // пути к видео. Флешку «только на чтение» вставили под другой буквой —
+    // сессия не находилась: ролик распознавался заново за деньги, правки
+    // оставались в осиротевшем файле.
+    test('Защищённый носитель вставили под другой буквой — сессия из папки '
+        'программы находится, правки на месте, платных запросов нет',
+        () async {
+      final h = await started();
+      final c = h.controller;
+      final stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      h.stt = stt;
+      // Рядом с видео сессию записать нельзя: её место занято папкой.
+      String protectedCopy(String drive) {
+        final video =
+            h.copyVideo(probeClip, folder: drive, name: 'VID_0001.mp4');
+        Directory('$video.subtitler.json').createSync();
+        return video;
+      }
+
+      final onE = protectedCopy('носитель E');
+      await c.openVideo(onE);
+      expect(c.stage, AppStage.review);
+      c.updateTranslation(1, 'правка следователя');
+      await c.flush();
+      await c.goHome();
+
+      final onF = protectedCopy('носитель F');
+      Directory(p.dirname(onE)).deleteSync(recursive: true);
+      stt.calls.clear();
+      final translate = FakeTranslate();
+      h.translate = translate;
+      await c.openVideo(onF);
+
+      expect(c.stage, AppStage.review);
+      expect(stt.calls, isEmpty, reason: 'ролик уже распознан — не платим');
+      expect(translate.calls, 0);
+      expect(c.session!.cues.first.ru, 'правка следователя');
+    });
+
     // Дефект 3: «Вшить» сразу после правки брал с диска старый SRT —
     // правка попадала туда только через 700 мс.
     test('Сохранение сразу после правки берёт свежий текст', () async {

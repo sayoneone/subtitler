@@ -28,7 +28,8 @@ class SessionStore {
   /// вещдоков часто называются одинаково («VID_0001.mp4» из разных дел).
   /// Поэтому к имени видео добавлен хеш полного пути: иначе сессия
   /// одного дела молча затирала бы сессию другого — с ручными правками,
-  /// а ролик пришлось бы оплачивать заново.
+  /// а ролик пришлось бы оплачивать заново. Читаются и файлы под чужим
+  /// хешем: путь к тому же видео мог смениться (см. [_otherPathFallbacks]).
   String fallbackPathFor(String videoPath) =>
       p.join(fallbackDir, '${_fallbackStem(videoPath)}.subtitler.json');
 
@@ -42,10 +43,51 @@ class SessionStore {
   /// Очень длинное имя обрезается: вместе с хешем и хвостом оно упёрлось
   /// бы в предел длины имени файла (255 символов), а уникальность и так
   /// даёт хеш.
-  String _fallbackStem(String videoPath) {
+  String _fallbackStem(String videoPath) =>
+      '${_shortName(videoPath)}.${stablePathHash(videoPath)}';
+
+  static String _shortName(String videoPath) {
     final name = p.basename(videoPath);
-    final short = name.length > 100 ? name.substring(0, 100) : name;
-    return '$short.${stablePathHash(videoPath)}';
+    return name.length > 100 ? name.substring(0, 100) : name;
+  }
+
+  /// Запасные файлы видео с таким же именем, записанные по другому пути:
+  /// `<имя видео>.<любой хеш>.<tail>`, кроме своего.
+  ///
+  /// Хеш защищает от затирания при записи, но путь к тому же видео
+  /// меняется: защищённую флешку вставили под другой буквой, в сетевую
+  /// папку «только на чтение» зашли не через букву диска, а по имени
+  /// сервера, папку дела переложили на другой защищённый носитель. Искать
+  /// только под своим хешем значит не найти сессию — ролик оплачивался бы
+  /// заново, а правки остались бы в осиротевшем файле. Своё ли это видео,
+  /// решает отпечаток (см. [_loadFreshest]), как и для файла рядом с
+  /// видео, который перенесли вместе с ним.
+  ///
+  /// [names] — имена файлов запасной папки ([_fallbackNames]); порядок
+  /// не важен, из подходящих берётся самый свежий.
+  List<String> _otherPathFallbacks(
+      String videoPath, String tail, List<String> names) {
+    final pattern = RegExp('^${RegExp.escape(_shortName(videoPath))}'
+        r'\.[0-9a-f]{8}\.'
+        '${RegExp.escape(tail)}\$');
+    final own = '${_fallbackStem(videoPath)}.$tail';
+    return [
+      for (final name in names)
+        if (name != own && pattern.hasMatch(name)) p.join(fallbackDir, name),
+    ];
+  }
+
+  /// Имена файлов в запасной папке; пусто, если её ещё нет или она не
+  /// читается.
+  List<String> _fallbackNames() {
+    try {
+      return [
+        for (final entity in Directory(fallbackDir).listSync())
+          if (entity is File) p.basename(entity.path),
+      ]..sort();
+    } on FileSystemException {
+      return const [];
+    }
   }
 
   /// Так запасные файлы называла прежняя версия — только по имени видео.
@@ -59,7 +101,9 @@ class SessionStore {
 
   /// Возвращает сессию, только если отпечаток совпал с [actual]; если
   /// подходят и файл рядом с видео, и запасной — более свежий.
-  /// Сессии прежних схем читаются (см. [Session.fromJson]).
+  /// Сессии прежних схем читаются (см. [Session.fromJson]). В запасной
+  /// папке ищется и сессия, записанная, когда путь к видео был другим
+  /// (см. [_otherPathFallbacks]).
   ///
   /// Сессия привязывается к [videoPath] — пути, по которому её открыли,
   /// а не к записанному внутри JSON (см. [_loadFreshest]).
@@ -68,6 +112,7 @@ class SessionStore {
         sessionPathFor(videoPath),
         fallbackPathFor(videoPath),
         _legacyFallbackPathFor(videoPath),
+        ..._otherPathFallbacks(videoPath, 'subtitler.json', _fallbackNames()),
       ], actual);
 
   /// Пишет сессию и возвращает фактический путь.
@@ -86,15 +131,26 @@ class SessionStore {
       );
 
   /// Резервная копия для [lang], если она есть и относится к этому же файлу.
+  /// Ищется так же, как основная сессия (см. [load]).
   Future<Session?> loadBackup(
     String videoPath,
     String lang,
     SourceFingerprint actual,
+  ) =>
+      _loadBackup(videoPath, lang, actual, _fallbackNames());
+
+  Future<Session?> _loadBackup(
+    String videoPath,
+    String lang,
+    SourceFingerprint actual,
+    List<String> fallbackNames,
   ) async {
     final session = await _loadFreshest(videoPath, [
       backupPathFor(videoPath, lang),
       fallbackBackupPathFor(videoPath, lang),
       _legacyFallbackBackupPathFor(videoPath, lang),
+      ..._otherPathFallbacks(
+          videoPath, 'subtitler.$lang.json', fallbackNames),
     ], actual);
     // Копию могли переименовать руками — язык внутри важнее имени файла.
     return session?.lang == lang ? session : null;
@@ -107,9 +163,12 @@ class SessionStore {
     String videoPath,
     SourceFingerprint actual,
   ) async {
+    // Запасная папка общая для всех видео — просматривается один раз, а
+    // не для каждого языка.
+    final names = _fallbackNames();
     final found = <String, Session>{};
     for (final lang in kLanguageCodes) {
-      final backup = await loadBackup(videoPath, lang, actual);
+      final backup = await _loadBackup(videoPath, lang, actual, names);
       if (backup != null) found[lang] = backup;
     }
     return found;
