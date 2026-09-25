@@ -1383,7 +1383,7 @@ class AppController extends ChangeNotifier {
     } catch (e, stack) {
       log.error('Сохранение не удалось: $e');
       log.debug('$stack');
-      _saveError = describeError(e, mask: log.mask);
+      _saveError = describeError(e, mask: log.mask, srt: _srtFiles);
       _saveStatus = SaveStatus.failed;
     } finally {
       if (partial != null) deleteQuietly(partial, log: log);

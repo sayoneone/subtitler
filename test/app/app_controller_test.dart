@@ -970,6 +970,7 @@ void main() {
       expect(c.saveStatus, SaveStatus.failed);
       expect(c.saveError!.title,
           'Субтитры не отрисовались — сообщите разработчику');
+      expect(c.saveError!.hint, contains('уже лежат рядом с видео'));
       expect(c.saveError!.details, contains('пикселей'));
       expect(File(beside(video, '_ru.mp4')).existsSync(), isFalse);
       expect(File(beside(video, '_ru.partial.mp4')).existsSync(), isFalse);
@@ -1046,6 +1047,30 @@ void main() {
       expect(File(result.ruSrtPath).readAsStringSync(), contains('RU:'));
       expect(c.outputDir, result.dir);
     }, skip: burnSkip);
+
+    // Замечание ревью c20: при запасной папке сообщение уверяло, что .srt
+    // «уже лежат рядом с видео», а плашка на том же экране — что они в
+    // папке программы. Следователь искал бы их не там.
+    test('Субтитры не видны, а .srt в папке приложения — сообщение называет '
+        'эту папку', () async {
+      final (h, _, _) = await turkishVideo();
+      final c = h.controller;
+      final folder = Directory(p.join(h.root.path, 'вещдок'))..createSync();
+      final video = p.join(folder.path, 'clip.mp4');
+      File(probeClip).copySync(video);
+      addTearDown(makeUnwritable(folder.path, video));
+      await c.openVideo(video);
+      h.runner.rewriteBurn = withoutSubtitles;
+
+      await c.save();
+
+      expect(c.saveError!.title,
+          'Субтитры не отрисовались — сообщите разработчику');
+      expect(c.outputInFallback, isTrue);
+      expect(c.saveError!.hint, isNot(contains('рядом с видео')));
+      expect(c.saveError!.hint, contains(c.outputDir!));
+      expect(c.outputDir, startsWith(h.runtime.outputDir));
+    });
 
     test('Android: вместо «Открыть папку» — «Поделиться» видео и обоими .srt',
         () async {

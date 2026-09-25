@@ -77,11 +77,13 @@ const int kPosixNoSpace = 28;
 ///
 /// [mask] вырезает секреты из технических деталей — по умолчанию маска
 /// общего журнала, где зарегистрирован ключ. [windows] подменяется в
-/// тестах: коды ошибок файловой системы у Windows и Unix разные.
+/// тестах: коды ошибок файловой системы у Windows и Unix разные. [srt] —
+/// где на самом деле лежат .srt, если сообщение о них говорит.
 UserError describeError(
   Object error, {
   String Function(String text)? mask,
   bool? windows,
+  SrtFiles? srt,
 }) {
   final hide = mask ?? DebugLog.instance.mask;
   final onWindows = windows ?? Platform.isWindows;
@@ -156,8 +158,8 @@ UserError describeError(
       return make(
         'Субтитры не отрисовались — сообщите разработчику',
         'Видео не сохранено: в готовом кадре субтитров не видно. '
-            'Сохраните журнал и отправьте его разработчику. Файлы .srt '
-            'с субтитрами уже лежат рядом с видео.',
+            'Сохраните журнал и отправьте его разработчику. '
+            '${_srtAlreadySaved(srt)}',
         UserErrorAction.none,
       );
     case FileBusyException(:final fileName):
@@ -218,6 +220,16 @@ UserError describeError(
     UserErrorAction.retry,
   );
 }
+
+/// Где уже лежат .srt — по факту записи: в папке только для чтения они
+/// уходят в папку программы, и «рядом с видео» было бы неправдой.
+String _srtAlreadySaved(SrtFiles? srt) => switch (srt) {
+      null => 'Файлы .srt с субтитрами уже сохранены.',
+      SrtFiles(inFallback: true, :final names) =>
+        'Файлы .srt с субтитрами уже сохранены в папку программы: '
+            '${names.dir}.',
+      _ => 'Файлы .srt с субтитрами уже лежат рядом с видео.',
+    };
 
 UserError _diskFull(String details) => UserError(
       title: 'Недостаточно места на диске для обработки',
