@@ -815,6 +815,60 @@ void main() {
       expect(rig.h.revealed, [fallback]);
       await finishReview(tester, rig);
     });
+
+    // Когда ffmpeg не пускают писать рядом с исходником (контролируемый
+    // доступ к папкам), в папку программы уходит только видео: .srt к
+    // этому времени уже записаны рядом с исходником. Раньше плашка и тогда
+    // говорила «файлы сохранены в папку программы» — следователь открыл
+    // бы её и не нашёл там субтитров.
+    testWidgets('плашка о папке программы говорит, где видео, а где '
+        'субтитры', (tester) async {
+      Finder plateText(String text) => find.descendant(
+            of: find.byKey(const ValueKey('review-fallback')),
+            matching: find.text(text),
+          );
+      final rig = await pumpReview(tester);
+      final c = rig.controller;
+
+      // Только видео в папке программы, .srt — рядом с исходником.
+      c.debugEmulate(
+        saveStatus: SaveStatus.saved,
+        saveResult: const SaveResult(
+          videoPath: '/программа/output/clip/clip_ru.mp4',
+          origSrtPath: '/видео/дело 1/clip_orig.srt',
+          ruSrtPath: '/видео/дело 1/clip_ru.srt',
+          inFallback: true,
+        ),
+      );
+      await tester.pump();
+      expect(
+        plateText(
+          'Готовое видео записать рядом с исходным нельзя — оно сохранено '
+          'в папку программы: /программа/output/clip. Файлы .srt с '
+          'субтитрами лежат рядом с исходным видео.',
+        ),
+        findsOneWidget,
+      );
+
+      // Всё в папке программы: и видео, и .srt.
+      c.debugEmulate(
+        saveResult: const SaveResult(
+          videoPath: '/программа/output/clip/clip_ru.mp4',
+          origSrtPath: '/программа/output/clip/clip_orig.srt',
+          ruSrtPath: '/программа/output/clip/clip_ru.srt',
+          inFallback: true,
+        ),
+      );
+      await tester.pump();
+      expect(
+        plateText(
+          'Рядом с видео записать нельзя — файлы сохранены в папку '
+          'программы: /программа/output/clip',
+        ),
+        findsOneWidget,
+      );
+      await finishReview(tester, rig);
+    });
   });
 
   group('Остановленная обработка и сообщения', () {
