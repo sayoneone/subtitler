@@ -1544,6 +1544,40 @@ void main() {
       expect(stages.last, AppStage.review);
     });
 
+    // Замечание ревью P4: «готово» в меню решает полнота копии. Стёртый
+    // человеком перевод — его решение, а не недоделка. Если бы копия с ним
+    // считалась недоделанной, возврат к прежнему языку шёл бы через
+    // обработку: стёртая строка-бред переводилась бы заново и
+    // возвращалась в субтитры и в следующее «Сохранить».
+    test('Стёртый перевод не возвращается и при возврате к прежнему языку',
+        () async {
+      final (h, stt, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      c.updateTranslation(1, ''); // убрал строку из видео
+      await c.flush();
+      await c.switchLanguage('uz-UZ'); // сравнить с узбекским — платно
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'uz-UZ');
+
+      final turkish = c.languageChoices.firstWhere((l) => l.code == 'tr-TR');
+      expect(turkish.ready, isTrue,
+          reason: 'турецкий вариант полный: строку стёр человек');
+
+      stt.calls.clear();
+      final translate = FakeTranslate();
+      h.translate = translate;
+      await c.switchLanguage('tr-TR');
+
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+      expect(stt.calls, isEmpty);
+      expect(translate.calls, 0, reason: 'стёртое человеком не переводится');
+      expect(c.session!.cues.first.ru, '');
+      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
+          isNot(contains('RU:yarın')));
+    });
+
     test('Недоделанная резервная копия не «готова» и при выборе доделывается',
         () async {
       final h = await started();
@@ -1589,6 +1623,76 @@ void main() {
           everyElement(CueStatus.ok));
       expect(c.session!.cues.every((cue) => cue.ru.startsWith('RU:')), isTrue);
       expect(stt.calls, [('kk-KZ', 2), ('kk-KZ', 3)]);
+    });
+
+    // Замечание ревью P5: после «Отмены» платной смены языка то, что
+    // успели на новом языке, уходит в резервную копию. Если «Отмену»
+    // нажали, пока шёл последний запрос, копия распознана целиком, но не
+    // переведена. «Готово — переключить» открыло бы предпросмотр, где ни
+    // одна строка не переведена, и продолжить было бы нечем.
+    test('Отмена смены языка на последнем запросе — копия без перевода не '
+        '«готова», а при выборе переводится', () async {
+      final (h, stt, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      final gated = GatedStt(stt);
+      h.stt = gated;
+      final switching = c.switchLanguage('uz-UZ');
+      await gated.reached; // реплика 2 — последняя без узбекской пробы
+      c.cancel();
+      gated.release();
+      await switching;
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+
+      final store = SessionStore(fallbackDir: h.runtime.supportDir);
+      final uzbek = await store.loadBackup(
+          video, 'uz-UZ', sessionOnDisk(video).fingerprint);
+      expect(uzbek!.cues.map((cue) => cue.status), everyElement(CueStatus.ok),
+          reason: 'распознано целиком');
+      expect(uzbek.cues.map((cue) => cue.awaitsTranslation),
+          everyElement(isTrue), reason: 'но не переведено');
+      final choice = c.languageChoices.firstWhere((l) => l.code == 'uz-UZ');
+      expect(choice.ready, isFalse,
+          reason: '«готово — переключить» было бы неправдой');
+
+      final again = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      final translate = FakeTranslate();
+      h
+        ..stt = again
+        ..translate = translate;
+      await c.switchLanguage('uz-UZ');
+
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'uz-UZ');
+      expect(again.calls, isEmpty, reason: 'распознанное уже оплачено');
+      expect(translate.calls, greaterThan(0));
+      expect(c.session!.cues.map((cue) => cue.ru),
+          everyElement(startsWith('RU:')));
+    });
+
+    test('Отмена смены языка до первого запроса — начатая копия не «готова»',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      c.addListener(() {
+        if (c.stage == AppStage.processing && !c.cancelRequested) c.cancel();
+      });
+      await c.switchLanguage('uz-UZ');
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+
+      final store = SessionStore(fallbackDir: h.runtime.supportDir);
+      final uzbek = await store.loadBackup(
+          video, 'uz-UZ', sessionOnDisk(video).fingerprint);
+      expect(uzbek!.cues.map((cue) => cue.status),
+          contains(CueStatus.pending),
+          reason: 'в копии только оплаченные пробы');
+      expect(c.languageChoices.firstWhere((l) => l.code == 'uz-UZ').ready,
+          isFalse);
+      expect(c.allLanguageChoices.firstWhere((l) => l.code == 'uz-UZ').ready,
+          isFalse);
     });
 
     // Раньше основной сессией после «Отмены» оставалась заготовка нового
