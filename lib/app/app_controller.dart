@@ -495,6 +495,9 @@ class AppController extends ChangeNotifier {
   bool _initStarted = false;
   bool _disposed = false;
 
+  /// Окно закрывают ([prepareToExit]).
+  bool _closing = false;
+
   /// Что-то идёт: обработка, сохранение, смена языка, проверка ключа или
   /// файла. Ключ и видео в это время не меняются.
   bool get isBusy =>
@@ -949,8 +952,12 @@ class AppController extends ChangeNotifier {
         _stage = AppStage.cancelled;
       }
     } catch (e, stack) {
-      log.error('Обработка прервана: $e');
-      log.debug('$stack');
+      if (_closing) {
+        log.warn('Обработка остановлена: программу закрывают');
+      } else {
+        log.error('Обработка прервана: $e');
+        log.debug('$stack');
+      }
       _error = describeError(e, mask: log.mask);
       _stage = AppStage.failed;
     } finally {
@@ -1307,6 +1314,49 @@ class AppController extends ChangeNotifier {
     return cue.copyWith(ru: text, status: status, flags: flags, edited: true);
   }
 
+  /// Окно закрывают: остановить работу и прибрать за собой, потом
+  /// дописать правки.
+  ///
+  /// ffmpeg — отдельный процесс, и выход программы его не останавливает.
+  /// Без этого закрытое посреди сохранения окно оставляло бы ffmpeg
+  /// кодировать в фоне, а рядом с исходником — `<имя>_ru.partial.mp4`.
+  /// Поэтому обработка отменяется, запущенные ffmpeg останавливаются (по
+  /// своим PID), и закрытие ждёт, пока сохранение удалит временный файл,
+  /// а подготовка звука — audio.wav. Во время распознавания и перевода
+  /// ffmpeg не работает: там достаточно отмены, новых платных запросов не
+  /// будет, а распознанное уже в сессии. Ждём не дольше [limit].
+  Future<void> prepareToExit(
+      {Duration limit = const Duration(seconds: 5)}) async {
+    _closing = true;
+    final job = _job;
+    final waitJob =
+        job != null && _progress?.step == ProcessingStep.preparingAudio;
+    if (job != null && !job.cancelled) {
+      job.cancelled = true;
+      log.warn('Окно закрывают — обработка останавливается');
+    }
+    final saving = isSaving ? _saveFuture : null;
+    final runner = _runner;
+    final waits = <Future<void>>[
+      if (runner is StoppableFfmpegRunner) runner.stopAll(),
+      ?saving,
+      if (waitJob) jobDone,
+    ];
+    try {
+      await Future.wait(waits).timeout(limit);
+    } on TimeoutException {
+      log.warn('Работа не остановилась за ${limit.inSeconds} с — '
+          'закрываемся, не дожидаясь');
+    }
+    // Проверенное видео, которое ждало «Повторить», больше не понадобится.
+    _dropVerified();
+    try {
+      await flush().timeout(const Duration(seconds: 3));
+    } catch (e) {
+      log.warn('Правки перед закрытием не дописались: $e');
+    }
+  }
+
   /// Дописывает на диск правки, которые ещё ждут своей задержки, и ждёт
   /// уже начатые записи. Вызывать перед закрытием окна.
   Future<void> flush() {
@@ -1357,7 +1407,17 @@ class AppController extends ChangeNotifier {
   /// кодируется во временный `<имя>_ru.partial.mp4`, проверяется, что
   /// субтитры в кадре видны, и только потом встаёт на место
   /// `<имя>_ru.mp4`. При провале проверки временный файл удаляется.
-  Future<void> save() async {
+  Future<void> save() {
+    if (isSaving) return _saveFuture ?? Future<void>.value();
+    final future = _save();
+    _saveFuture = future;
+    return future;
+  }
+
+  /// Идущее сохранение — его ждёт закрытие окна.
+  Future<void>? _saveFuture;
+
+  Future<void> _save() async {
     final video = _videoPath;
     if (_stage != AppStage.review || _session == null || video == null) return;
     if (isSaving || _switching) return;
@@ -1479,8 +1539,12 @@ class AppController extends ChangeNotifier {
       partial = null;
       _place(outputs, done);
     } catch (e, stack) {
-      log.error('Сохранение не удалось: $e');
-      log.debug('$stack');
+      if (_closing) {
+        log.warn('Сохранение прервано: программу закрывают');
+      } else {
+        log.error('Сохранение не удалось: $e');
+        log.debug('$stack');
+      }
       _saveError = describeError(e, mask: log.mask, srt: _srtFiles);
       _saveStatus = SaveStatus.failed;
     } finally {

@@ -93,6 +93,36 @@ Input #0, mov,mp4,m4a,3gp,3g2,mj2, from 'clip.mp4':
     expect(result.log, contains('title'));
   });
 
+  test('stopAll останавливает запущенный ffmpeg и больше ничего не запускает',
+      () async {
+    // Свой раннер: после stopAll он для других тестов уже не годится.
+    final own = ProcessFfmpegRunner(
+        ffmpegPath: runner.ffmpegPath, ffprobePath: runner.ffprobePath);
+    final out = File('${tmp.path}/long.wav');
+    // -re: минута тона пишется минуту — ffmpeg точно ещё работает.
+    final running = own.run([
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-re', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=60',
+      out.path,
+    ]);
+    for (var i = 0; i < 200 && own.runningPids.isEmpty; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+    }
+    expect(own.runningPids, hasLength(1));
+
+    final stopwatch = Stopwatch()..start();
+    await own.stopAll();
+    final result = await running.timeout(const Duration(seconds: 10));
+    expect(result.ok, isFalse, reason: 'процесс остановлен, а не доработал');
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 10)));
+    expect(own.runningPids, isEmpty);
+    // Файл больше никто не держит: его можно удалить.
+    if (out.existsSync()) out.deleteSync();
+
+    final refused = await own.run(['-version']);
+    expect(refused.ok, isFalse, reason: 'программа закрывается');
+  });
+
   test('FfmpegResult.ok привязан к нулевому коду', () {
     expect(const FfmpegResult(exitCode: 0, log: '').ok, isTrue);
     expect(const FfmpegResult(exitCode: 1, log: '').ok, isFalse);

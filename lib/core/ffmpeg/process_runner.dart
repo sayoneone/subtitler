@@ -14,7 +14,7 @@ const String kFfmpegPathEnv = 'SUBTITLER_FFMPEG';
 const String kFfprobePathEnv = 'SUBTITLER_FFPROBE';
 
 /// Десктопная реализация: ffmpeg как отдельный процесс.
-class ProcessFfmpegRunner implements FfmpegRunner {
+class ProcessFfmpegRunner implements StoppableFfmpegRunner {
   final String ffmpegPath;
   final String ffprobePath;
 
@@ -62,14 +62,48 @@ class ProcessFfmpegRunner implements FfmpegRunner {
   /// последовательности заменяются символом-заменителем.
   static const _lenientUtf8 = Utf8Decoder(allowMalformed: true);
 
+  /// Запущенные сейчас ffmpeg — чтобы остановить их при закрытии окна.
+  final Set<Process> _running = {};
+  bool _stopped = false;
+
+  /// PID запущенных сейчас ffmpeg.
+  Iterable<int> get runningPids => _running.map((process) => process.pid);
+
+  @override
+  Future<void> stopAll() async {
+    _stopped = true;
+    final running = [..._running];
+    for (final process in running) {
+      log.warn('Останавливаем ffmpeg (PID ${process.pid})');
+      process.kill();
+    }
+    await Future.wait([for (final process in running) process.exitCode]);
+  }
+
+  static const FfmpegResult _refused =
+      FfmpegResult(exitCode: -1, log: 'ffmpeg не запущен: программа закрывается');
+
   @override
   Future<FfmpegResult> run(
     List<String> args, {
     void Function(double seconds)? onProgress,
   }) async {
+    if (_stopped) return _refused;
     log.debug('ffmpeg ▶ ${_asShellCommand(ffmpegPath, args)}');
     final started = DateTime.now();
     final process = await Process.start(ffmpegPath, args);
+    _running.add(process);
+    // stopAll мог прийти, пока процесс запускался.
+    if (_stopped) process.kill();
+    try {
+      return await _collect(process, started, onProgress);
+    } finally {
+      _running.remove(process);
+    }
+  }
+
+  Future<FfmpegResult> _collect(Process process, DateTime started,
+      void Function(double seconds)? onProgress) async {
     final errorOutput = StringBuffer();
 
     final stderrDone = process.stderr

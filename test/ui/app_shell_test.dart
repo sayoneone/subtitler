@@ -20,6 +20,8 @@ import 'package:subtitler/ui/review/review_view.dart';
 import '../support/app_harness.dart';
 import '../support/counting_log.dart';
 import '../support/fake_preview_player.dart';
+import '../support/fakes.dart';
+import '../support/media.dart';
 import 'support.dart';
 
 void main() {
@@ -477,4 +479,50 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(h.dispose);
   });
+
+  testWidgets('закрытие окна во время сохранения останавливает ffmpeg и '
+      'убирает временный файл рядом с видео', (tester) async {
+    // Dart не привязывает ffmpeg к программе: без остановки он кодировал
+    // бы дальше без окна и оставил <имя>_ru.partial.mp4 рядом с вещдоком.
+    final h = (await tester.runAsync(started))!;
+    final video = p.join(h.root.path, 'videos', 'беседа.mp4');
+    final partial = File(p.join(h.root.path, 'videos', 'беседа_ru.partial.mp4'));
+    await tester.runAsync(() async {
+      Directory(p.dirname(video)).createSync(recursive: true);
+      await makeSpeechClip(video);
+    });
+    await pumpApp(tester, h.controller);
+    late Future<void> saving;
+    await tester.runAsync(() async {
+      h.controller.debugEmulate(
+          stage: AppStage.review, session: sampleSession(videoPath: video));
+      // Кодирование пятнадцатисекундного ролика — пятнадцать секунд.
+      h.runner.rewriteBurn = inRealTime;
+      saving = h.controller.save();
+      for (var i = 0; i < 400 && !partial.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+    });
+    expect(partial.existsSync(), isTrue, reason: 'ffmpeg начал писать видео');
+    expect(h.controller.saveStatus, SaveStatus.burning);
+
+    final stopwatch = Stopwatch()..start();
+    final response = await tester
+        .runAsync(() => tester.binding.handleRequestAppExit());
+
+    expect(response, AppExitResponse.exit);
+    expect(stopwatch.elapsed, lessThan(const Duration(seconds: 10)),
+        reason: 'закрытие не ждёт конца кодирования');
+    expect(partial.existsSync(), isFalse);
+    // Остановленный ffmpeg не допишет файл заново.
+    await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1500)));
+    expect(partial.existsSync(), isFalse);
+    expect(h.controller.saveStatus, isNot(SaveStatus.saved));
+    expect(h.log.entries.last.message, 'Окно закрыто');
+
+    await tester.runAsync(() => saving);
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(h.dispose);
+  }, skip: burnSkipReason() != null);
 }

@@ -232,7 +232,7 @@ class MemorySettingsStore implements SettingsStore {
 }
 
 /// Настоящий ffmpeg с записью вызовов и крючками для вшивания.
-class RecordingRunner implements FfmpegRunner {
+class RecordingRunner implements StoppableFfmpegRunner {
   final FfmpegRunner inner;
   final List<List<String>> calls = [];
 
@@ -251,6 +251,9 @@ class RecordingRunner implements FfmpegRunner {
   /// Подменяет итог вшивания: вернула не `null` — ffmpeg не запускается,
   /// вызов сразу получает этот итог (например, «нет доступа к папке»).
   FfmpegResult? Function(List<String> args)? answerBurn;
+
+  /// Подменяет любую команду, не только вшивание (после [rewriteBurn]).
+  List<String> Function(List<String> args)? rewrite;
 
   RecordingRunner(this.inner);
 
@@ -275,12 +278,28 @@ class RecordingRunner implements FfmpegRunner {
       }
       actual = rewriteBurn?.call(args) ?? args;
     }
+    actual = rewrite?.call(actual) ?? actual;
     return inner.run(actual, onProgress: onProgress);
   }
 
   @override
   Future<double> probeDuration(String path) => inner.probeDuration(path);
+
+  @override
+  Future<void> stopAll() async {
+    final runner = inner;
+    if (runner is StoppableFfmpegRunner) {
+      await runner.stopAll();
+    }
+  }
 }
+
+/// ffmpeg читает вход со скоростью воспроизведения (`-re`): пятнадцать
+/// секунд тестового ролика обрабатываются пятнадцать секунд. Так тест
+/// успевает закрыть окно посреди работы.
+List<String> inRealTime(List<String> args) => [
+      for (final arg in args) ...[if (arg == '-i') '-re', arg],
+    ];
 
 /// Вшивание без libass: фильтр субтитров заменён пустым. ffmpeg выходит с
 /// кодом 0, а текста в кадре нет — ровно тот сбой, ради которого есть

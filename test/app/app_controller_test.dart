@@ -547,6 +547,32 @@ void main() {
       expect(c.stage, AppStage.home);
     });
 
+    test('Закрытие окна при подготовке звука: ffmpeg остановлен, audio.wav '
+        'удалён, платных запросов нет', () async {
+      final (h, stt, video) = await turkishVideo();
+      final c = h.controller;
+      // Извлечение звука идёт со скоростью воспроизведения: 15 секунд.
+      h.runner.rewrite =
+          (args) => args.contains('pcm_s16le') ? inRealTime(args) : args;
+      final audio = File(p.join(h.runtime.workDirFor(video), 'audio.wav'));
+      final processing = c.openVideo(video);
+      for (var i = 0; i < 400 && !audio.existsSync(); i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 25));
+      }
+      expect(audio.existsSync(), isTrue, reason: 'ffmpeg начал писать звук');
+      expect(c.progress?.step, ProcessingStep.preparingAudio);
+
+      final stopwatch = Stopwatch()..start();
+      await c.prepareToExit();
+
+      expect(stopwatch.elapsed, lessThan(const Duration(seconds: 5)));
+      expect(c.stage, isNot(AppStage.processing),
+          reason: 'обработка закончилась до закрытия, а не после');
+      expect(audio.existsSync(), isFalse);
+      await processing;
+      expect(stt.calls, isEmpty);
+    });
+
     test('Отмена при распознавании — «Открыть, что успели»', () async {
       final h = await started();
       final c = h.controller;
@@ -1083,6 +1109,17 @@ void main() {
             reason: '${h.controller.saveError}');
         expect(h.runner.burnCalls, 2);
         expect(target.readAsStringSync(encoding: latin1), isNot('старое'));
+      });
+
+      test('программу закрыли, не нажав «Повторить», — проверенное видео не '
+          'остаётся рядом с исходником', () async {
+        final (h, video, _, _) = await failedReplace();
+        final partial = File(beside(video, '_ru.partial.mp4'));
+        expect(partial.existsSync(), isTrue);
+
+        await h.controller.prepareToExit();
+
+        expect(partial.existsSync(), isFalse);
       });
 
       test('временное видео пропало — повтор кодирует заново', () async {

@@ -24,6 +24,7 @@ import 'package:subtitler/app/settings.dart';
 import 'package:subtitler/core/cloud/speechkit_client.dart';
 import 'package:subtitler/core/cloud/translate_client.dart';
 import 'package:subtitler/core/ffmpeg/ffmpeg_locator.dart';
+import 'package:subtitler/core/ffmpeg/process_runner.dart';
 import 'package:subtitler/core/logging.dart';
 import 'package:subtitler/core/models.dart';
 
@@ -161,7 +162,14 @@ AppHarness makeTestController({
     runtime: runtime,
     keyStore: keyStore,
     settingsStore: settingsStore,
-    runner: RecordingRunner(testRunner),
+    // Свой ffmpeg-раннер у каждого контроллера: закрытие окна (stopAll)
+    // останавливает раннер насовсем, а общий testRunner нужен и другим
+    // тестам.
+    runner: RecordingRunner(ProcessFfmpegRunner(
+      ffmpegPath: testRunner.ffmpegPath,
+      ffprobePath: testRunner.ffprobePath,
+      log: log,
+    )),
     log: log,
     stt: stt ?? FakeStt(const []),
     translate: translate ?? FakeTranslate(),
