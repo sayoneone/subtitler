@@ -800,6 +800,8 @@ void main() {
       expect(again.calls, isEmpty, reason: 'распознанное повторно не оплачивается');
       expect(translate.calls, 1);
       expect(c.session!.cues.every((cue) => cue.ru.startsWith('RU:')), isTrue);
+      expect(c.reviewCount, 0,
+          reason: '«перевод не получен» с остановки — уже неправда');
     });
 
     test('Нет сети — «Нет доступа к интернету» и «Повторить», язык наугад '
@@ -1669,6 +1671,8 @@ void main() {
       expect(translate.calls, greaterThan(0));
       expect(c.session!.cues.map((cue) => cue.ru),
           everyElement(startsWith('RU:')));
+      expect(c.reviewCount, 0,
+          reason: 'переведённые строки не помечены «перевод не получен»');
     });
 
     test('Отмена смены языка до первого запроса — начатая копия не «готова»',

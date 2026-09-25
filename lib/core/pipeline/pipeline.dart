@@ -717,7 +717,16 @@ class Pipeline {
           '${translations.fold<int>(0, (sum, t) => sum + t.length)}');
       for (var i = 0; i < pending.length && i < translations.length; i++) {
         final position = cues.indexWhere((c) => c.index == pending[i].index);
-        cues[position] = cues[position].copyWith(ru: translations[i]);
+        final cue = cues[position];
+        // Пометка «перевод не получен» могла остаться с прошлого раза:
+        // обработку остановили до перевода, и applyAutoFlags её поставил.
+        // Перевод получен — снимаем, иначе переведённая строка жёлтая и
+        // считается в «проверить». Пустой ответ пометку вернёт
+        // (applyAutoFlags).
+        cues[position] = cue.copyWith(
+          ru: translations[i],
+          flags: {...cue.flags}..remove(CueFlag.translateFailed),
+        );
       }
     } on PipelineCancelledException {
       // Отмена в паузе между повторами: перевод доделается при следующем
