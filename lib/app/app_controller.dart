@@ -888,7 +888,7 @@ class AppController extends ChangeNotifier {
         await _enterReview(result);
       }
     } on PipelineCancelledException {
-      log.info('Обработка остановлена до распознавания — открывать нечего');
+      log.info('Обработка остановлена, распознанного нет — открывать нечего');
       _stage = AppStage.cancelled;
     } catch (e, stack) {
       log.error('Обработка прервана: $e');

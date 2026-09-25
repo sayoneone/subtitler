@@ -707,6 +707,67 @@ void main() {
     expect(File('$workDir/audio.wav').existsSync(), isFalse);
   });
 
+  // Сессию начали на другом ПК (или папку с видео перенесли): распознанное
+  // лежит в файле сессии, а нарезки здесь нет. Отмена, пока ролик режется
+  // заново, раньше давала «Распознать ничего не успели» — хотя распознанное
+  // есть и никуда не делось.
+  test('Отмена повторной нарезки начатой сессии отдаёт уже распознанное',
+      () async {
+    final copy = freshCopy(video);
+    final workDir = '${tmp.path}/work${workCounter++}';
+    final done = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+            workDir: workDir)
+        .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+    final started = done.copyWith(cues: [
+      done.cues.first,
+      for (final cue in done.cues.skip(1))
+        cue.copyWith(orig: '', ru: '', status: CueStatus.pending, flags: {}),
+    ]);
+    if (Directory(workDir).existsSync()) {
+      Directory(workDir).deleteSync(recursive: true);
+    }
+
+    final stt = FakeStt(['НЕ ДОЛЖНО ВЫЗЫВАТЬСЯ']);
+    final partial = await build(stt, FakeTranslate(), workDir: workDir).process(
+      videoPath: copy,
+      lang: 'tr-TR',
+      resumeFrom: started,
+      sleep: (_) async {},
+      isCancelled: () => true,
+    );
+    expect(partial.cues.first.orig, 'bir');
+    expect(partial.cues.first.status, CueStatus.ok);
+    expect(partial.cues.skip(1).every((c) => c.status == CueStatus.pending),
+        isTrue);
+    expect(stt.calls, 0);
+  });
+
+  test('Отмена повторной нарезки сессии без распознанного — «нечего '
+      'показать»', () async {
+    final copy = freshCopy(video);
+    final workDir = '${tmp.path}/work${workCounter++}';
+    final done = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+            workDir: workDir)
+        .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+    final blank = done.copyWith(cues: [
+      for (final cue in done.cues)
+        cue.copyWith(orig: '', ru: '', status: CueStatus.pending, flags: {}),
+    ]);
+    if (Directory(workDir).existsSync()) {
+      Directory(workDir).deleteSync(recursive: true);
+    }
+    await expectLater(
+      build(FakeStt(const []), FakeTranslate(), workDir: workDir).process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: blank,
+        sleep: (_) async {},
+        isCancelled: () => true,
+      ),
+      throwsA(isA<PipelineCancelledException>()),
+    );
+  });
+
   group('Смена языка', () {
     test('Пробы нового языка переиспользуются, прежний вариант — в копию',
         () async {

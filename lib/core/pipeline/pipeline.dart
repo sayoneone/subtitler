@@ -133,8 +133,10 @@ class Pipeline {
   /// прежний.
   ///
   /// Отмена ([isCancelled]) во время распознавания или перевода возвращает
-  /// то, что успели; во время подготовки звука, когда показывать ещё
-  /// нечего, — [PipelineCancelledException]. Видео без звука —
+  /// то, что успели. Отмена во время повторной нарезки начатой сессии
+  /// (файлов сегментов нет) возвращает эту сессию как есть. Если же
+  /// показывать нечего — ни одной распознанной реплики, — бросается
+  /// [PipelineCancelledException]. Видео без звука —
   /// [NoAudioStreamException], звук без речи — [NoSpeechFoundException].
   ///
   /// Сбой одной реплики помечает её `failed`, и обработка идёт дальше. Но
@@ -201,16 +203,27 @@ class Pipeline {
     } else if (!_segmentsPresent(session)) {
       log.warn('Файлы сегментов пропали — режем заново, '
           'уже распознанный текст сохраняем');
-      // Приложение перезапускали: рабочая папка с нарезкой исчезла.
-      // Режем заново, но уже распознанный текст переносим — он оплачен.
-      final fresh = await _prepare(
-        videoPath: videoPath,
-        lang: lang,
-        duration: duration,
-        fingerprint: fingerprint,
-        report: report,
-        cancelled: cancelled,
-      );
+      // Рабочая папка с нарезкой исчезла: её убрали за давностью, сессию
+      // начали на другом ПК или папку с видео перенесли. Режем заново, но
+      // уже распознанный текст переносим — он оплачен.
+      final Session fresh;
+      try {
+        fresh = await _prepare(
+          videoPath: videoPath,
+          lang: lang,
+          duration: duration,
+          fingerprint: fingerprint,
+          report: report,
+          cancelled: cancelled,
+        );
+      } on PipelineCancelledException {
+        // Отменили, пока ролик режется заново. Распознанное раньше никуда
+        // не делось — оно в этой сессии: её и отдаём как то, что успели.
+        if (!session.cues.any(_isRecognized)) rethrow;
+        log.info('Отмена во время повторной нарезки — отдаём то, что уже '
+            'распознано');
+        return session;
+      }
       session = _mergeRecognized(fresh: fresh, previous: session);
     }
 
@@ -423,6 +436,10 @@ class Pipeline {
     await store.save(session);
     return LanguageProbe(session: session, verdict: verdict);
   }
+
+  /// Реплика уже распознана — текстом или «речи нет».
+  static bool _isRecognized(Cue cue) =>
+      cue.status == CueStatus.ok || cue.status == CueStatus.empty;
 
   /// Реплики с распознанными текстами из [texts] (номер → текст).
   static List<Cue> _withTexts(List<Cue> cues, Map<int, String> texts) =>

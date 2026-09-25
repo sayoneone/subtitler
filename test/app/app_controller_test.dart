@@ -561,6 +561,41 @@ void main() {
       expect(c.session!.cues.where((cue) => cue.orig.isNotEmpty), hasLength(3));
     });
 
+    test('Отмена повторной нарезки начатой сессии — «Открыть, что успели»',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      await c.goHome();
+      // Сессию начали на другом ПК: реплика 2 не распознана, а нарезки
+      // на этом ПК нет.
+      final saved = sessionOnDisk(video);
+      File('$video.subtitler.json').writeAsStringSync(jsonEncode(saved
+          .copyWith(cues: [
+            for (final cue in saved.cues)
+              cue.index == 2
+                  ? cue.copyWith(
+                      orig: '', ru: '', status: CueStatus.pending, flags: {})
+                  : cue,
+          ])
+          .toJson()));
+      final work = Directory(h.runtime.workDirFor(video));
+      if (work.existsSync()) work.deleteSync(recursive: true);
+
+      // «Отмена», пока ролик режется заново.
+      c.addListener(() {
+        if (c.stage == AppStage.processing && !c.cancelRequested) c.cancel();
+      });
+      await c.openVideo(video);
+
+      expect(c.stage, AppStage.cancelled);
+      expect(c.canOpenPartial, isTrue,
+          reason: 'реплики 1 и 3 распознаны — показать есть что');
+      await c.openPartial();
+      expect(c.stage, AppStage.review);
+      expect(c.session!.cues.where((cue) => cue.orig.isNotEmpty), hasLength(2));
+    });
+
     test('Остановленная до перевода сессия при повторном открытии доводится',
         () async {
       final h = await started();
