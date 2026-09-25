@@ -53,10 +53,11 @@ class SessionStore {
   String _legacyFallbackBackupPathFor(String videoPath, String lang) =>
       p.join(fallbackDir, '${p.basename(videoPath)}.subtitler.$lang.json');
 
-  /// Возвращает сессию, только если отпечаток совпал с [actual].
+  /// Возвращает сессию, только если отпечаток совпал с [actual]; если
+  /// подходят и файл рядом с видео, и запасной — более свежий.
   /// Сессии прежних схем читаются (см. [Session.fromJson]).
   Future<Session?> load(String videoPath, SourceFingerprint actual) =>
-      _loadFirst([
+      _loadFreshest([
         sessionPathFor(videoPath),
         fallbackPathFor(videoPath),
         _legacyFallbackPathFor(videoPath),
@@ -83,7 +84,7 @@ class SessionStore {
     String lang,
     SourceFingerprint actual,
   ) async {
-    final session = await _loadFirst([
+    final session = await _loadFreshest([
       backupPathFor(videoPath, lang),
       fallbackBackupPathFor(videoPath, lang),
       _legacyFallbackBackupPathFor(videoPath, lang),
@@ -131,23 +132,40 @@ class SessionStore {
     return restored;
   }
 
-  Future<Session?> _loadFirst(
+  /// Самая свежая из подходящих сессий по [paths].
+  ///
+  /// Файл может быть и рядом с видео, и в запасной папке: сессию создали,
+  /// пока в папку видео можно было писать, а потом папку записали на диск
+  /// или защитили от записи — правки ушли в запасную папку, а файл рядом
+  /// с видео остался прежним. Первый попавшийся вернул бы старый текст, и
+  /// правки молча пропали бы. Поля времени в схеме нет, поэтому сравнивается
+  /// время изменения файла. На Windows Dart отдаёт его с точностью до
+  /// секунды (проверено прогоном); при равенстве берётся файл, стоящий в
+  /// [paths] раньше, — обычное место рядом с видео.
+  Future<Session?> _loadFreshest(
       List<String> paths, SourceFingerprint actual) async {
+    Session? freshest;
+    DateTime? freshestTime;
     for (final path in paths) {
       final file = File(path);
-      if (!file.existsSync()) continue;
+      final stat = file.statSync();
+      if (stat.type != FileSystemEntityType.file) continue;
+      final Session session;
       try {
         final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
-        final session = Session.fromJson(json);
-        if (!session.fingerprint.matches(actual)) continue;
-        return session;
+        session = Session.fromJson(json);
       } on FormatException {
         continue; // битый файл или схема новее нашей — как будто сессии нет
       } on TypeError {
         continue;
       }
+      if (!session.fingerprint.matches(actual)) continue;
+      if (freshestTime == null || stat.modified.isAfter(freshestTime)) {
+        freshest = session;
+        freshestTime = stat.modified;
+      }
     }
-    return null;
+    return freshest;
   }
 
   Future<String> _write(Session session, String primary, String fallback) async {

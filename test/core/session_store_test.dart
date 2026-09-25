@@ -354,6 +354,65 @@ void main() {
     });
   });
 
+  group('Сессия и рядом с видео, и в запасной папке', () {
+    const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+
+    Session edited(String video) => sessionFor(video).copyWith(cues: const [
+          Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
+              ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+        ]);
+
+    test('Правки, ушедшие в запасную папку, не теряются при повторном '
+        'открытии', () async {
+      // Видео обработали, пока в папку можно было писать; потом папку
+      // дела записали на диск или защитили от записи и поправили реплику.
+      final folder = Directory('${tmp.path}/дело')..createSync();
+      final video = '${folder.path}/clip.mp4';
+      File(video).writeAsBytesSync(List.filled(100, 0));
+      final store = SessionStore(fallbackDir: fallback.path);
+      final primary = await store.save(sessionFor(video));
+      File(primary).setLastModifiedSync(yesterday);
+      addTearDown(protectFolder(folder.path, [primary]));
+
+      final saved = await store.save(edited(video));
+      expect(saved, startsWith(fallback.path));
+
+      final reopened = await store.load(video, fp);
+      expect(reopened!.cues.single.ru, 'правка следователя',
+          reason: 'иначе в редакторе и в следующем видео — старый текст');
+    });
+
+    test('Рядом с видео свежее запасной — берётся сессия рядом с видео',
+        () async {
+      // В запасную папку однажды ушла запись, потом в папку видео снова
+      // стало можно писать, и следующие правки легли рядом с ним.
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      File(store.fallbackPathFor(video))
+        ..writeAsStringSync(jsonEncode(sessionFor(video).toJson()))
+        ..setLastModifiedSync(yesterday);
+      await store.save(edited(video));
+
+      expect((await store.load(video, fp))!.cues.single.ru,
+          'правка следователя');
+    });
+
+    test('Резервная копия языка — тоже самая свежая', () async {
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      final uzbek = sessionFor(video).copyWith(lang: 'uz-UZ');
+      File(store.backupPathFor(video, 'uz-UZ'))
+        ..writeAsStringSync(jsonEncode(uzbek.toJson()))
+        ..setLastModifiedSync(yesterday);
+      File(store.fallbackBackupPathFor(video, 'uz-UZ')).writeAsStringSync(
+          jsonEncode(edited(video).copyWith(lang: 'uz-UZ').toJson()));
+
+      expect((await store.loadBackup(video, 'uz-UZ', fp))!.cues.single.ru,
+          'правка следователя');
+    });
+  });
+
   test('Битый JSON не роняет приложение', () async {
     final video = '${tmp.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));
