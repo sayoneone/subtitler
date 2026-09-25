@@ -56,6 +56,12 @@ class ProcessFfmpegRunner implements FfmpegRunner {
 
   static final _outTimeUs = RegExp(r'out_time_us=(\d+)');
 
+  /// Вывод ffmpeg — диагностика, а не данные: в нём бывают метаданные
+  /// ролика в чужой кодировке (заголовки AVI в CP1251 — обычное дело).
+  /// Строгий декодер ронял на таком байте всю обработку, поэтому битые
+  /// последовательности заменяются символом-заменителем.
+  static const _lenientUtf8 = Utf8Decoder(allowMalformed: true);
+
   @override
   Future<FfmpegResult> run(
     List<String> args, {
@@ -67,11 +73,11 @@ class ProcessFfmpegRunner implements FfmpegRunner {
     final errorOutput = StringBuffer();
 
     final stderrDone = process.stderr
-        .transform(utf8.decoder)
+        .transform(_lenientUtf8)
         .forEach(errorOutput.write);
 
     final stdoutDone = process.stdout
-        .transform(utf8.decoder)
+        .transform(_lenientUtf8)
         .transform(const LineSplitter())
         .forEach((line) {
       final match = _outTimeUs.firstMatch(line);
