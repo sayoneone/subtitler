@@ -11,9 +11,11 @@
 /// указательные и вопросительные слова, послелоги, союзы, частицы, связки,
 /// числительные, слова времени и обращения — плюс несколько самых
 /// обиходных глагольных форм. Это грамматические факты языка, а не выборка
-/// из чужого частотного списка. Размеры турецкого и узбекского списков
-/// выровнены (около 280 слов): язык с бо́льшим словарём получал бы
-/// завышенную долю «своих» слов.
+/// из чужого частотного списка. Турецкий и узбекский списки держатся одного
+/// размера: язык с бо́льшим словарём получал бы завышенную долю «своих»
+/// слов. Чисел здесь нет нарочно — они устаревают с каждым новым словом;
+/// расхождение меньше 10 % проверяет lexicon_test, и слово, добавленное
+/// только в один список, стоит уравновесить словом в другом.
 library;
 
 import '../languages.dart';
@@ -293,18 +295,20 @@ o'zi o'zim o'zing o'zimiz o'zingiz o'z
 bu buni bunga bunda bundan buning bular
 shu shuni shunga shunda shundan shuning shular
 o'sha o'shani o'shanga o'shanda ana mana ushbu
-bunday shunday unday qanday
+bunday shunday unday qanday shunaqa bunaqa qanaqa
 nima nimani nimaga nimada nimadan nega nechta necha qancha uncha
-qayer qayerda qayerga qayerdan qachon
+qayer qayerda qayerga qayerdan qachon qani
 kim kimni kimga kimning kimdan qaysi mi
 va yoki ammo lekin biroq chunki agar ham hamda yo go'yo balki holbuki
 uchun bilan kabi qadar sari keyin oldin so'ng orqali haqida tomon birga boshqa
+bo'yicha ko'ra tufayli ichida oldida
 faqat yana hali hozir endi hech hamma har juda ko'p oz sal eng albatta
-shekilli axir hatto ancha doim hamisha
+shekilli axir hatto ancha doim hamisha menimcha biroz avval
 bor yo'q emas edi ekan emish edim eding edik
 bo'ladi bo'ldi bo'lsa bo'lgan bo'lib bo'lmaydi kerak mumkin shart lozim
-ha xo'p mayli rahmat assalomu alaykum xayr
-aka opa uka singil akam ukam opajon domla xola amaki
+ha xo'p mayli rahmat assalomu alaykum xayr salom iltimos marhamat
+kechirasiz to'g'ri
+aka opa uka singil akam ukam opajon domla xola amaki ota
 bugun ertaga kecha indinga ertalab kechqurun tushda tunda erta kech
 hafta oy yil soat daqiqa kun vaqt payt
 bir ikki uch to'rt besh olti yetti sakkiz to'qqiz o'n yigirma o'ttiz qirq
@@ -365,11 +369,11 @@ const List<String> _uzbekLookalikes = [
 /// считается своим у обеих моделей и выбор не сдвигает.
 ///
 /// Нарочно НЕ внесены слова, которые в одном из языков редкие: узбекские
-/// ham «тоже», kel «иди», uy «дом», mana «вот», xoʻp «ладно», axir «ведь»
-/// (по-турецки ham — «сырой», kel — «лысый», mana — «смысл», ahır — «хлев»)
-/// и узбекское de «скажи» против самого частого турецкого de. В речи на
-/// своём языке они звучат несравнимо чаще, чем у соседа, и остаются
-/// признаком языка.
+/// ham «тоже», kel «иди», uy «дом», mana «вот», xoʻp «ладно», axir «ведь»,
+/// qani «где же» (по-турецки ham — «сырой», kel — «лысый», mana — «смысл»,
+/// ahır — «хлев», kanı — «его кровь») и узбекское de «скажи» против самого
+/// частого турецкого de. В речи на своём языке они звучат несравнимо чаще,
+/// чем у соседа, и остаются признаком языка.
 const List<(String, String)> _sharedTurkishUzbek = [
   ('yani', "ya'ni"), // то есть
   ('biri', 'biri'), // один из

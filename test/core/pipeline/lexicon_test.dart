@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/languages.dart';
 import 'package:subtitler/core/pipeline/lexicon.dart';
@@ -71,7 +73,9 @@ void main() {
         expect(size, inInclusiveRange(150, 300));
       }
       // Язык с бо́льшим словарём получал бы завышенную долю «своих» слов.
-      expect((tr - uz).abs() / tr, lessThan(0.15));
+      // Комментарий в lexicon.dart ссылается на эту границу, а не на числа.
+      expect((tr - uz).abs() / math.max(tr, uz), lessThan(0.10),
+          reason: 'турецкий $tr, узбекский $uz');
     });
 
     test('Русский и казахский тоже есть — на случай, если их включат', () {
