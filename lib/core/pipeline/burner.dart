@@ -117,6 +117,33 @@ class SubtitlesInvisibleException implements Exception {
   String toString() => message;
 }
 
+/// ffmpeg не смог открыть выходной файл: ему нет доступа к папке.
+///
+/// Бывает, когда писать туда может сама программа, а ffmpeg — нет:
+/// «Контролируемый доступ к папкам» разрешается отдельно для каждого exe,
+/// и проба записи из subtitler.exe проходит, а ffmpeg.exe получает отказ.
+/// Приложение тогда вшивает в запасную папку.
+class OutputAccessDeniedException implements Exception {
+  final String output;
+  final String log;
+  const OutputAccessDeniedException(this.output, this.log);
+
+  @override
+  String toString() => 'ffmpeg не может записать $output: нет доступа\n$log';
+}
+
+/// Так ffmpeg 9.0.1 сообщает, что выходной файл ему открыть не дали:
+/// «Error opening output <путь>: Permission denied» и итоговая строка
+/// «Error opening output files: Permission denied». Проверено на этой
+/// машине запретом записи в папку (ACL) и файлом «только для чтения».
+/// Отказ открыть ВХОДНОЙ файл пишется как «Error opening input…» и сюда
+/// не относится.
+final RegExp _outputAccessDenied =
+    RegExp(r'Error opening output[^\n]*: Permission denied');
+
+bool isOutputAccessDenied(String ffmpegLog) =>
+    _outputAccessDenied.hasMatch(ffmpegLog);
+
 class SubtitleBurner {
   final FfmpegRunner runner;
   SubtitleBurner(this.runner);
@@ -138,6 +165,9 @@ class SubtitleBurner {
       onProgress: onProgress,
     );
     if (!result.ok) {
+      if (isOutputAccessDenied(result.log)) {
+        throw OutputAccessDeniedException(output, result.log);
+      }
       throw StateError('Не удалось вшить субтитры: ${result.log}');
     }
   }

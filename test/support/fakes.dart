@@ -248,6 +248,10 @@ class RecordingRunner implements FfmpegRunner {
   /// Подменяет команду вшивания.
   List<String> Function(List<String> args)? rewriteBurn;
 
+  /// Подменяет итог вшивания: вернула не `null` — ffmpeg не запускается,
+  /// вызов сразу получает этот итог (например, «нет доступа к папке»).
+  FfmpegResult? Function(List<String> args)? answerBurn;
+
   RecordingRunner(this.inner);
 
   static bool isBurn(List<String> args) =>
@@ -264,6 +268,8 @@ class RecordingRunner implements FfmpegRunner {
     var actual = args;
     if (isBurn(args)) {
       onBurn?.call(args);
+      final answer = answerBurn?.call(args);
+      if (answer != null) return answer;
       for (final position in burnProgress) {
         onProgress?.call(position);
       }

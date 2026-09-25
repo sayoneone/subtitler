@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:subtitler/core/ffmpeg/ffmpeg_runner.dart';
 import 'package:subtitler/core/ffmpeg/process_runner.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/pipeline/burner.dart';
@@ -34,6 +35,32 @@ Future<void> _makeVideo(String path, String color) async {
   ]);
   if (!made.ok) throw StateError('Не удалось сделать ролик: ${made.log}');
 }
+
+/// ffmpeg, который не запускается, а сразу отвечает заданным итогом.
+class _AnsweringRunner implements FfmpegRunner {
+  final FfmpegResult answer;
+  _AnsweringRunner(this.answer);
+
+  @override
+  Future<FfmpegResult> run(List<String> args,
+          {void Function(double seconds)? onProgress}) async =>
+      answer;
+
+  @override
+  Future<double> probeDuration(String path) async => 6;
+}
+
+/// Вывод ffmpeg 9.0.1, когда писать в папку ему запрещено. Записан на этой
+/// машине: запрет записи в папку через ACL, тот же текст — у файла «только
+/// для чтения». «Контролируемый доступ к папкам» тоже отказывает в доступе
+/// (сам он здесь не включался).
+const _deniedLog =
+    r'[out#0/mp4 @ 0000022415a82a40] Error opening output '
+    r'C:\Дела\clip_ru.partial.mp4: Permission denied'
+    '\n'
+    r'Error opening output file C:\Дела\clip_ru.partial.mp4.'
+    '\n'
+    'Error opening output files: Permission denied\n';
 
 void main() {
   late Directory tmp;
@@ -344,4 +371,40 @@ void main() {
     expect(seen, isNotEmpty);
     expect(seen.last, greaterThan(0));
   }, skip: burnSkip);
+
+  test('ffmpeg не может открыть выходной файл на запись — своё исключение, '
+      'а не общее «не удалось вшить»', () async {
+    final burner = SubtitleBurner(
+        _AnsweringRunner(const FfmpegResult(exitCode: -13, log: _deniedLog)));
+    await expectLater(
+      burner.burn(
+        input: 'src.mp4',
+        srtPath: 'subs.srt',
+        fontsDir: 'fonts',
+        output: r'C:\Дела\clip_ru.partial.mp4',
+      ),
+      throwsA(isA<OutputAccessDeniedException>().having(
+          (e) => e.output, 'output', r'C:\Дела\clip_ru.partial.mp4')),
+    );
+  });
+
+  test('Другие сбои вшивания — по-прежнему общий StateError', () async {
+    final burner = SubtitleBurner(_AnsweringRunner(const FfmpegResult(
+        exitCode: 1, log: '[AVFilterGraph @ 0000] No such filter: subtitles')));
+    await expectLater(
+      burner.burn(
+          input: 'src.mp4', srtPath: 'subs.srt', fontsDir: 'fonts', output: 'o.mp4'),
+      throwsA(isA<StateError>()),
+    );
+    // Нет прав на ВХОДНОЙ файл — это не повод уходить в запасную папку.
+    final input = SubtitleBurner(_AnsweringRunner(const FfmpegResult(
+        exitCode: -13,
+        log: 'Error opening input file src.mp4.\n'
+            'Error opening input files: Permission denied\n')));
+    await expectLater(
+      input.burn(
+          input: 'src.mp4', srtPath: 'subs.srt', fontsDir: 'fonts', output: 'o.mp4'),
+      throwsA(isA<StateError>()),
+    );
+  });
 }

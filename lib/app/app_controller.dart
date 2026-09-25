@@ -1350,17 +1350,46 @@ class AppController extends ChangeNotifier {
 
       final seconds = session.fingerprint.durationSec;
       final burner = SubtitleBurner(_runner!);
-      await burner.burn(
-        input: video,
-        srtPath: burnSrt,
-        fontsDir: _runtime!.fontsDir,
-        output: partial,
-        onProgress: (position) {
-          if (seconds <= 0) return;
-          _saveProgress = (position / seconds).clamp(0.0, 1.0);
-          _notify();
-        },
-      );
+      Future<void> burnTo(String output) => burner.burn(
+            input: video,
+            srtPath: burnSrt,
+            fontsDir: _runtime!.fontsDir,
+            output: output,
+            onProgress: (position) {
+              if (seconds <= 0) return;
+              _saveProgress = (position / seconds).clamp(0.0, 1.0);
+              _notify();
+            },
+          );
+      try {
+        await burnTo(partial);
+      } on OutputAccessDeniedException catch (e) {
+        // Проба записи выше идёт из самой программы, а пишет ffmpeg.exe.
+        // «Контролируемый доступ к папкам» разрешается каждому exe
+        // отдельно: программе можно, ffmpeg — нет. Тогда — как при папке
+        // без прав: видео в запасную папку.
+        if (inFallback) {
+          throw FileSystemException('Видео записать некуда', e.output);
+        }
+        log.warn('ffmpeg не пустили писать рядом с исходником '
+            '(${e.output}) — сохраняем видео в папку приложения');
+        deleteQuietly(partial, log: log);
+        names = outputs.fallback;
+        inFallback = true;
+        Directory(names.dir).createSync(recursive: true);
+        if (!outputs.canReplace(names.video)) {
+          throw FileSystemException('Видео записать некуда', names.video);
+        }
+        partial = names.partialVideo;
+        deleteQuietly(partial, log: log);
+        _saveProgress = 0;
+        _notify();
+        try {
+          await burnTo(partial);
+        } on OutputAccessDeniedException catch (again) {
+          throw FileSystemException('Видео записать некуда', again.output);
+        }
+      }
 
       _saveStatus = SaveStatus.verifying;
       _saveProgress = 1;

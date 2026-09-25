@@ -12,6 +12,7 @@ import 'package:subtitler/core/cloud/api_errors.dart';
 import 'package:subtitler/core/cloud/speechkit_client.dart';
 import 'package:subtitler/core/cue_timeline.dart';
 import 'package:subtitler/core/ffmpeg/ffmpeg_locator.dart';
+import 'package:subtitler/core/ffmpeg/ffmpeg_runner.dart';
 import 'package:subtitler/core/languages.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/session_store.dart';
@@ -1096,6 +1097,54 @@ void main() {
           reason: 'итог сохранения первого ролика не сброшен');
       expect(h.runner.calls.where((args) => args.contains(other)), isEmpty,
           reason: 'другое видео даже не проверялось');
+    });
+
+    // Контролируемый доступ к папкам разрешён только subtitler.exe: сама
+    // программа пишет рядом с видео (.srt и проба canReplace проходят), а
+    // ffmpeg.exe — нет. Вшивание должно уйти в запасную папку, а не
+    // упираться в «Не удалось обработать видео» при каждом повторе.
+    test('ffmpeg не пускают писать рядом с видео — видео в папке приложения',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      final besidePartial = beside(video, '_ru.partial.mp4');
+      h.runner.answerBurn = (args) => args.last == besidePartial
+          ? FfmpegResult(
+              exitCode: -13,
+              log: '[out#0/mp4 @ 000001] Error opening output $besidePartial: '
+                  'Permission denied\n'
+                  'Error opening output file $besidePartial.\n'
+                  'Error opening output files: Permission denied\n')
+          : null;
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
+      final result = c.saveResult!;
+      expect(result.inFallback, isTrue);
+      expect(result.videoPath, startsWith(h.runtime.outputDir));
+      expect(File(result.videoPath).existsSync(), isTrue);
+      expect(result.ruSrtPath, beside(video, '_ru.srt'),
+          reason: '.srt рядом с видео записать удалось — они там и остались');
+      expect(c.outputInFallback, isTrue, reason: 'плашка с путём к видео');
+      expect(h.runner.burnCalls, 2);
+      expect(File(beside(video, '_ru.mp4')).existsSync(), isFalse);
+      expect(h.log.asText(), contains('папку приложения'));
+    }, skip: burnSkip);
+
+    test('Другой сбой ffmpeg в запасную папку не уводит', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      h.runner.answerBurn = (_) => const FfmpegResult(
+          exitCode: 1, log: '[AVFilterGraph @ 000001] что-то сломалось');
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.failed);
+      expect(c.saveError!.title, 'Не удалось обработать видео');
+      expect(h.runner.burnCalls, 1);
     });
 
     test('Android: вместо «Открыть папку» — «Поделиться» видео и обоими .srt',
