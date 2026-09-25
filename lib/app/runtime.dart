@@ -77,6 +77,7 @@ class AppRuntime {
         p.join(Platform.isAndroid ? support.path : cache, 'output'));
 
     _removeOldWorkDir(p.join(support.path, 'work'), work.path, journal);
+    _removeOldJournals(support.path, logs, journal);
     // Ждём, а не в фоне: видео, переданное при запуске, откроется сразу
     // после подготовки, и его рабочая папка не должна исчезнуть под ним.
     await removeStaleWorkDirs(work.path, log: journal);
@@ -116,6 +117,47 @@ class AppRuntime {
           log.warn('Не удалось удалить прежнюю рабочую папку $old: $e'),
     ));
   }
+
+  /// Журналы, которые прежние версии писали в папку приложения (на
+  /// Windows — перемещаемый профиль): subtitler.log и subtitler.prev.log,
+  /// «Сохранить в файл» версий 0.1.x (subtitler-debug.log) и «Сохранить
+  /// журнал» ранних сборок (subtitler-log-*.txt). В них распознанный текст
+  /// и полные пути к видео, а профиль уезжает на сервер профилей. Все эти
+  /// имена программа выбирала сама, человек свои файлы сюда не кладёт.
+  /// Журнал теперь пишется в [logs]; если это та же папка (Android), в ней
+  /// текущий журнал — трогать нечего. Удаляется в фоне, как и прежняя
+  /// рабочая папка: запуск ждать этого не должен.
+  static void _removeOldJournals(String support, String logs, DebugLog log) {
+    if (p.equals(support, logs)) return;
+    unawaited(() async {
+      var removed = 0;
+      try {
+        await for (final entry in Directory(support).list(followLinks: false)) {
+          if (entry is! File || !_oldJournal.hasMatch(p.basename(entry.path))) {
+            continue;
+          }
+          try {
+            await entry.delete();
+            removed++;
+          } on FileSystemException catch (e) {
+            // Файл держит ещё открытая прежняя версия — уберём при
+            // следующем запуске.
+            log.warn('Не удалось удалить прежний журнал: $e');
+          }
+        }
+      } on FileSystemException catch (e) {
+        log.warn('Не удалось просмотреть папку приложения: $e');
+      }
+      if (removed > 0) {
+        log.info('Удалены журналы прежних версий из папки приложения: '
+            '$removed');
+      }
+    }());
+  }
+
+  static final _oldJournal = RegExp(
+      r'^(subtitler\.log|subtitler\.prev\.log|subtitler-debug\.log|'
+      r'subtitler-log-[0-9T-]+\.txt)$');
 
   /// Рабочая папка под конкретное видео: имя стабильно, поэтому повторная
   /// обработка недоделанной сессии переиспользует уже нарезанные сегменты.

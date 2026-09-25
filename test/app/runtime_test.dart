@@ -64,6 +64,59 @@ void main() {
     expect(removed.existsSync(), isFalse);
   });
 
+  // Выпущенные 0.1.0 и 0.1.1 писали журнал в папку приложения (Roaming):
+  // subtitler.log, subtitler.prev.log и «Сохранить в файл» —
+  // subtitler-debug.log. Ранние сборки нового окна клали туда же копии
+  // «Сохранить журнал» (subtitler-log-*.txt). В них распознанный текст и
+  // полные пути к видео, а перемещаемый профиль уезжает на сервер
+  // профилей. Журнал теперь пишется в LocalAppData, и прежние файлы
+  // раньше так и оставались в Roaming навсегда.
+  test('Журналы прежних версий из папки приложения (Roaming) удаляются',
+      () async {
+    final tmp = Directory.systemTemp.createTempSync('runtime_test_');
+    final log = DebugLog();
+    addTearDown(() async {
+      await log.close();
+      tmp.deleteSync(recursive: true);
+    });
+    final roaming = p.join(tmp.path, 'Roaming', 'ru.subtitler', 'subtitler');
+    final local = p.join(tmp.path, 'Local', 'ru.subtitler', 'subtitler');
+    Directory(roaming).createSync(recursive: true);
+    File inRoaming(String name, String text) =>
+        File(p.join(roaming, name))..writeAsStringSync(text);
+
+    const oldJournal = 'INFO  [tr-TR] реплика 1: выдуманная тестовая фраза\n'
+        r'INFO  Обработка: D:\Дела\Дело 0 (тест)\clip.mp4, язык tr-TR'
+        '\n';
+    final journals = [
+      inRoaming('subtitler.log', oldJournal),
+      inRoaming('subtitler.prev.log', oldJournal),
+      inRoaming('subtitler-debug.log', oldJournal),
+      inRoaming('subtitler-log-2026-09-20T10-00-00.txt', oldJournal),
+    ];
+    // Остальное в папке приложения — настройки и запасные сессии — не
+    // журналы: их не трогаем.
+    final kept = [
+      inRoaming('settings.json', '{}'),
+      inRoaming('clip.mp4.1a2b3c4d.subtitler.json', '{}'),
+      inRoaming('заметка.txt', 'не журнал'),
+    ];
+    PathProviderPlatform.instance = _FakePaths(roaming, local);
+
+    await AppRuntime.prepare(log: log);
+
+    // Удаляются в фоне — запуск этого не ждёт.
+    for (var i = 0; i < 50 && journals.any((f) => f.existsSync()); i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+    }
+    expect([for (final f in journals) if (f.existsSync()) p.basename(f.path)],
+        isEmpty);
+    expect([for (final f in kept) if (!f.existsSync()) p.basename(f.path)],
+        isEmpty);
+    expect(File(p.join(local, 'subtitler.log')).existsSync(), isTrue,
+        reason: 'журнал этого запуска — на месте');
+  });
+
   // Нарезку и SRT для вшивания программа убирает сама, но у недоделанных
   // сессий (отмена, нет сети, программу закрыли) рабочая папка остаётся.
   // Раньше такие папки со звуком из материалов дела лежали вечно.
