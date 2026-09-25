@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
@@ -18,9 +20,12 @@ void main(List<String> args) {
   // Настоящие сервисы (AppServices.real). Отладочный стенд открывается из
   // меню и берёт у контроллера уже готовые папки, ffmpeg и хранилище.
   // Видео, перетащенное на значок программы, приходит аргументом запуска.
-  runApp(SubtitlerApp(
-    controller: AppController(log: log, openOnStart: videoArgument(args)),
-  ));
+  final controller =
+      AppController(log: log, openOnStart: videoArgument(args));
+  // Бросили видео на значок, когда окно уже открыто: второй копии нет,
+  // запускалка передаёт путь этой.
+  unawaited(listenForOtherLaunches(controller.receiveFromAnotherLaunch));
+  runApp(SubtitlerApp(controller: controller));
 }
 
 class SubtitlerApp extends StatelessWidget {

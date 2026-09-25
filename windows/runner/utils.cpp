@@ -6,6 +6,7 @@
 #include <windows.h>
 
 #include <iostream>
+#include <vector>
 
 void CreateAndAttachConsole() {
   if (::AllocConsole()) {
@@ -66,4 +67,49 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string) {
     return std::string();
   }
   return utf8_string;
+}
+
+std::wstring GetInstanceName() {
+  const std::wstring fallback = L"ru.subtitler.subtitler";
+  std::vector<wchar_t> path(32768);
+  const DWORD length = ::GetModuleFileNameW(
+      nullptr, path.data(), static_cast<DWORD>(path.size()));
+  if (length == 0 || length >= path.size()) {
+    return fallback;
+  }
+  DWORD unused = 0;
+  const DWORD size = ::GetFileVersionInfoSizeW(path.data(), &unused);
+  if (size == 0) {
+    return fallback;
+  }
+  std::vector<BYTE> info(size);
+  if (!::GetFileVersionInfoW(path.data(), 0, size, info.data())) {
+    return fallback;
+  }
+  // Runner.rc keeps the strings in the "040904e4" block.
+  auto query = [&info](const wchar_t* field) {
+    const std::wstring key =
+        std::wstring(L"\\StringFileInfo\\040904e4\\") + field;
+    wchar_t* value = nullptr;
+    UINT chars = 0;
+    if (!::VerQueryValueW(info.data(), key.c_str(),
+                          reinterpret_cast<void**>(&value), &chars) ||
+        value == nullptr || chars == 0) {
+      return std::wstring();
+    }
+    return std::wstring(value);
+  };
+  const std::wstring company = query(L"CompanyName");
+  const std::wstring product = query(L"ProductName");
+  if (company.empty() || product.empty()) {
+    return fallback;
+  }
+  std::wstring name = company + L"." + product;
+  // Kernel object names may not contain backslashes after the namespace.
+  for (wchar_t& c : name) {
+    if (c == L'\\') {
+      c = L'_';
+    }
+  }
+  return name;
 }

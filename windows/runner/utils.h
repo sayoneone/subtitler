@@ -16,4 +16,10 @@ std::string Utf8FromUtf16(const wchar_t* utf16_string);
 // encoded in UTF-8. Returns an empty std::vector<std::string> on failure.
 std::vector<std::string> GetCommandLineArguments();
 
+// Name of this copy of the program: CompanyName and ProductName from the
+// exe's version resource, the same values path_provider uses to build the
+// program's folders. Copies with the same name share the log, the work
+// folder and the settings, so only one of them may run at a time.
+std::wstring GetInstanceName();
+
 #endif  // RUNNER_UTILS_H_

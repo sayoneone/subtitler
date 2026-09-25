@@ -284,6 +284,105 @@ void main() {
     });
   });
 
+  // Программа уже открыта, а видео бросили на значок: вторая копия не
+  // запускается, запускалка отдаёт путь этой (receiveFromAnotherLaunch).
+  group('Видео от повторного запуска', () {
+    const busyTitle = 'Сначала закончите с текущим видео';
+
+    test('на главном экране — открывается и обрабатывается', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      c.receiveFromAnotherLaunch(video);
+      // Сначала проверка файла, потом обработка — ждём итога.
+      for (var i = 0; i < 600 && c.stage != AppStage.review; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(c.videoPath, video);
+      expect(c.stage, AppStage.review);
+      expect(c.notice, isNull);
+    });
+
+    test('без ключа — ждёт ключа и открывается сразу после него', () async {
+      final h = await started(storedKey: null);
+      final c = h.controller;
+      h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      final video = h.copyVideo(probeClip);
+      c.receiveFromAnotherLaunch(video);
+      expect(c.stage, AppStage.needsKey);
+      expect(c.videoPath, isNull);
+
+      expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0005'), isTrue);
+      for (var i = 0; i < 600 && c.stage != AppStage.review; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(c.stage, AppStage.review);
+      expect(c.videoPath, video);
+    });
+
+    test('во время обработки — понятное сообщение, текущая обработка идёт',
+        () async {
+      final h = await started();
+      final c = h.controller;
+      final stt = GatedStt(ScriptedStt(h.runtime.workDir, turkishSpeech));
+      h.stt = stt;
+      final first = h.copyVideo(probeClip, name: 'первое.mp4');
+      final second = h.copyVideo(speechClip, name: 'второе.mp4');
+
+      final done = c.openVideo(first);
+      await stt.reached;
+      c.receiveFromAnotherLaunch(second);
+      expect(c.notice?.title, busyTitle);
+      expect(c.notice?.hint, contains('второе.mp4'));
+      expect(c.videoPath, first);
+      stt.release();
+      await done;
+      expect(c.stage, AppStage.review);
+      expect(c.videoPath, first);
+      expect(File('$second.subtitler.json').existsSync(), isFalse);
+    });
+
+    test('на экране предпросмотра — сообщение, правки не бросаются', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      final other = h.copyVideo(speechClip, name: 'другое.mp4');
+
+      c.receiveFromAnotherLaunch(other);
+
+      expect(c.stage, AppStage.review);
+      expect(c.videoPath, video);
+      expect(c.notice?.title, busyTitle);
+    });
+
+    test('во время сохранения — сообщение', () async {
+      final h = await started();
+      final c = h.controller;
+      c.debugEmulate(
+          stage: AppStage.review,
+          session: sampleSession(),
+          saveStatus: SaveStatus.burning);
+      c.receiveFromAnotherLaunch(r'C:\Дела\ещё.mp4');
+      expect(c.notice?.title, busyTitle);
+      expect(c.videoPath, sampleSession().videoPath);
+    });
+
+    test('то же видео ещё раз — без сообщения: оно уже открыто', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      c.receiveFromAnotherLaunch(video);
+      expect(c.notice, isNull);
+      expect(c.videoPath, video);
+    });
+
+    test('запуск без видео только выводит окно вперёд', () async {
+      final h = await started();
+      h.controller.receiveFromAnotherLaunch(null);
+      expect(h.controller.stage, AppStage.home);
+      expect(h.controller.notice, isNull);
+    });
+  });
+
   group('Ключ', () {
     test('Обе проверки прошли — ключ сохранён, главный экран', () async {
       final h = await started(storedKey: null);

@@ -273,6 +273,51 @@ class AppController extends ChangeNotifier {
     unawaited(openVideo(video));
   }
 
+  /// Программу запустили ещё раз, пока окно открыто: видео бросили на
+  /// значок или ярлык. Второе окно не открывается — запускалка передаёт
+  /// путь сюда ([video] `null` — запуск без видео, окно только выходит
+  /// вперёд).
+  ///
+  /// Свободна программа (главный экран, итог отмены или ошибки) — видео
+  /// открывается, как при перетаскивании в окно. Ещё не готова (подготовка,
+  /// ввод ключа) — ждёт, как видео первого запуска. Занята (обработка,
+  /// сохранение, предпросмотр с правками) — сообщение, а не очередь:
+  /// видео, которое само открылось бы позже, посреди правки чужого ролика,
+  /// только запутает. Человек закончит и перетащит его ещё раз.
+  void receiveFromAnotherLaunch(String? video) {
+    if (video == null) {
+      log.info('Программу запустили ещё раз — выводим окно вперёд');
+      return;
+    }
+    log.info('Видео передано повторным запуском: $video');
+    switch (_stage) {
+      case AppStage.starting || AppStage.needsKey:
+        _pendingVideo = video;
+        return;
+      case AppStage.broken:
+        return;
+      default:
+    }
+    final current = _videoPath;
+    if (current != null &&
+        p.equals(current, video) &&
+        (_stage == AppStage.processing || _stage == AppStage.review)) {
+      log.info('Это видео уже открыто');
+      return;
+    }
+    const free = {AppStage.home, AppStage.cancelled, AppStage.failed};
+    if (canOpenVideo && free.contains(_stage)) {
+      unawaited(openVideo(video));
+      return;
+    }
+    _notice = UserError(
+      title: 'Сначала закончите с текущим видео',
+      hint: 'Чтобы открыть «${p.basename(video)}», вернитесь на главный '
+          'экран и перетащите его ещё раз.',
+    );
+    _notify();
+  }
+
   // ---------------------------------------------------------------- этап
 
   AppStage _stage = AppStage.starting;
