@@ -1072,6 +1072,32 @@ void main() {
       expect(c.outputDir, startsWith(h.runtime.outputDir));
     });
 
+    // Замечание ревью c30: во время сохранения этап остаётся review, и
+    // открыть другое видео не даёт только isBusy в canOpenVideo. Без него
+    // перетащенный ролик сбросил бы видео и сохранение, а незаконченное
+    // вшивание потом записало бы «Готово» старого ролика поверх нового.
+    test('Во время сохранения другое видео не открывается', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      final other = h.copyVideo(probeClip);
+      // Без libass: исход сохранения здесь не важен, важно, что оно идёт.
+      h.runner.rewriteBurn = withoutSubtitles;
+
+      final saving = c.save();
+      expect(c.stage, AppStage.review);
+      expect(c.isSaving, isTrue);
+      await c.openVideo(other);
+      await saving;
+
+      expect(c.videoPath, video);
+      expect(c.stage, AppStage.review);
+      expect(c.saveStatus, isNot(SaveStatus.idle),
+          reason: 'итог сохранения первого ролика не сброшен');
+      expect(h.runner.calls.where((args) => args.contains(other)), isEmpty,
+          reason: 'другое видео даже не проверялось');
+    });
+
     test('Android: вместо «Открыть папку» — «Поделиться» видео и обоими .srt',
         () async {
       final h = await started(isMobile: true);
@@ -1292,6 +1318,31 @@ void main() {
       expect(c.language, 'tr-TR');
       expect(sessionOnDisk(video).lang, 'tr-TR');
       expect(c.notice!.title, 'Смена языка отменена');
+    });
+
+    // Замечание ревью c30: запрет открывать видео во время работы
+    // проверялся только на этапе processing, где его и так даёт этап.
+    // Бесплатная смена языка идёт на этапе review — там держит только
+    // isBusy в canOpenVideo.
+    test('Во время бесплатной смены языка другое видео не открывается',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      await c.switchLanguage('uz-UZ'); // турецкий уходит в резервную копию
+      final other = h.copyVideo(probeClip);
+
+      final switching = c.switchLanguage('tr-TR'); // из копии, бесплатно
+      expect(c.stage, AppStage.review);
+      expect(c.isBusy, isTrue);
+      await c.openVideo(other);
+      await switching;
+
+      expect(c.videoPath, video);
+      expect(c.language, 'tr-TR');
+      expect(c.stage, AppStage.review);
+      expect(h.runner.calls.where((args) => args.contains(other)), isEmpty,
+          reason: 'другое видео даже не проверялось');
     });
 
     // Дефект 5: в вопросе о языке русский вариант был подписан

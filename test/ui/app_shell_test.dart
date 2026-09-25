@@ -260,6 +260,31 @@ void main() {
     await closeApp(tester, h);
   });
 
+  testWidgets('на экране предпросмотра перетаскивание выключено, пока '
+      'сохраняется видео', (tester) async {
+    // Замечание ревью c30: при сохранении этап остаётся review, и приём
+    // файлов выключает только isBusy в canOpenVideo — раньше это не
+    // проверял ни один тест.
+    final h = await started();
+    h.controller.debugEmulate(stage: AppStage.review, session: sampleSession());
+    await pumpApp(tester, h.controller);
+    bool dropEnabled() =>
+        tester.widget<DropTarget>(find.byType(DropTarget)).enable;
+    expect(dropEnabled(), isTrue);
+
+    for (final status in [SaveStatus.burning, SaveStatus.verifying]) {
+      h.controller.debugEmulate(saveStatus: status, saveProgress: 0.3);
+      await tester.pump();
+      expect(dropEnabled(), isFalse, reason: status.name);
+    }
+
+    h.controller.debugEmulate(saveStatus: SaveStatus.idle);
+    await tester.pump();
+    expect(dropEnabled(), isTrue, reason: 'сохранение кончилось');
+
+    await closeApp(tester, h);
+  });
+
   testWidgets('под открытыми настройками перетаскивание не принимается',
       (tester) async {
     final h = await started();
