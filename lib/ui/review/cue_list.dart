@@ -237,7 +237,10 @@ class _CueRowState extends State<CueRow> {
     final tone = widget.tone;
     final reasons = cueReviewReasons(cue);
     final caption = cueToneCaption(tone);
-    final muted = tone == CueTone.empty || tone == CueTone.pending;
+    // Правка закрыта — поле должно и выглядеть закрытым. Свой цвет в style
+    // перекрывает серый цвет отключённого TextField, поэтому задаём его сами.
+    final muted =
+        widget.locked || tone == CueTone.empty || tone == CueTone.pending;
     final small = theme.textTheme.bodySmall;
 
     return Material(
@@ -300,10 +303,14 @@ class _CueRowState extends State<CueRow> {
                         isDense: true,
                         border: InputBorder.none,
                         contentPadding: const EdgeInsets.symmetric(vertical: 6),
-                        hintText: switch (tone) {
-                          CueTone.empty => 'впишите, если речь есть',
-                          _ => 'впишите перевод',
-                        },
+                        // Подсказка зовёт печатать — когда ввод не
+                        // принимается, её нет.
+                        hintText: widget.locked
+                            ? null
+                            : switch (tone) {
+                                CueTone.empty => 'впишите, если речь есть',
+                                _ => 'впишите перевод',
+                              },
                       ),
                       onTap: () => widget.onFocusCue(cue),
                       onChanged: (text) => widget.onEdit(cue.index, text),

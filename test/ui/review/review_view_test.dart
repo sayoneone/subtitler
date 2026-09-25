@@ -618,6 +618,45 @@ void main() {
       await finishReview(tester, rig);
     });
 
+    testWidgets('в режиме «Посмотреть результат» поля перевода выглядят '
+        'только для чтения, и сказано, как вернуться к правке', (tester) async {
+      // Раньше поле было отключено, но текст в нём оставался чёрным, как в
+      // обычном: человек щёлкал по опечатке, курсор не ставился, и
+      // объяснения не было.
+      final rig = await pumpReview(tester);
+      final scheme = Theme.of(tester.element(cueRowFinder(1))).colorScheme;
+      Color? textColor(int i) => tester
+          .widget<EditableText>(find.descendant(
+              of: translationField(i), matching: find.byType(EditableText)))
+          .style
+          .color;
+      final editableColor = textColor(1);
+      rig.controller.debugEmulate(
+        saveStatus: SaveStatus.saved,
+        saveResult: _saved(),
+      );
+      await tester.pump();
+      await tester.tap(find.text('Посмотреть результат'));
+      await tester.pump();
+
+      expect(tester.widget<TextField>(translationField(1)).enabled, isFalse);
+      expect(textColor(1), isNot(editableColor),
+          reason: 'отключённое поле не должно выглядеть обычным');
+      expect(textColor(1), scheme.onSurfaceVariant);
+      expect(find.text('впишите перевод'), findsNothing,
+          reason: 'подсказка зовёт печатать, а ввод не принимается');
+      expect(
+          find.textContaining(
+              'Чтобы исправить текст, нажмите «Вернуться к правке»'),
+          findsOneWidget);
+
+      await tester.tap(find.text('Вернуться к правке'));
+      await tester.pump();
+      expect(textColor(1), editableColor);
+      expect(find.text('впишите перевод'), findsWidgets);
+      await finishReview(tester, rig);
+    });
+
     testWidgets('уход с экрана во время просмотра результата не открывает '
         'исходник заново', (tester) async {
       final rig = await pumpReview(tester);

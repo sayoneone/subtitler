@@ -522,9 +522,11 @@ class _ReviewViewState extends State<ReviewView> {
         children: [
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
+            // Список реплик в этом режиме закрыт для правки — здесь
+            // сказано, почему и как её вернуть.
             child: Text(
-              'Готовое видео: ${c.saveResult?.fileName ?? ''} — '
-              'субтитры уже в кадре',
+              'Готовое видео: ${c.saveResult?.fileName ?? ''} — субтитры уже '
+              'в кадре. Чтобы исправить текст, нажмите «Вернуться к правке».',
               style: theme.textTheme.bodyMedium,
             ),
           ),
