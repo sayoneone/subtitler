@@ -54,6 +54,8 @@ class _OnboardingViewState extends State<OnboardingView> {
     final theme = Theme.of(context);
     final check = c.keyCheck;
     final checking = c.isCheckingKey;
+    final checked = check.translate != CheckState.unknown ||
+        check.stt != CheckState.unknown;
     final translateError = check.translateError;
     final sttError = check.sttError;
     // Одна причина на обе проверки (пустой или отозванный ключ, нет сети)
@@ -126,18 +128,25 @@ class _OnboardingViewState extends State<OnboardingView> {
                     child: const Text(AppStrings.cancel),
                   ),
               ]),
-              const SizedBox(height: 16),
-              _CheckRow(
-                label: AppStrings.keyCheckTranslate,
-                state: check.translate,
-                error: sameError ? null : translateError,
-              ),
-              const SizedBox(height: 6),
-              _CheckRow(
-                label: AppStrings.keyCheckStt,
-                state: check.stt,
-                error: sameError ? null : sttError,
-              ),
+              // До первой проверки индикаторов нет: два пустых кружка без
+              // заголовка выглядели как выбор «одно из двух».
+              if (checked) ...[
+                const SizedBox(height: 16),
+                Text(AppStrings.keyCheckTitle,
+                    style: theme.textTheme.titleSmall),
+                const SizedBox(height: 6),
+                _CheckRow(
+                  label: AppStrings.keyCheckTranslate,
+                  state: check.translate,
+                  error: sameError ? null : translateError,
+                ),
+                const SizedBox(height: 6),
+                _CheckRow(
+                  label: AppStrings.keyCheckStt,
+                  state: check.stt,
+                  error: sameError ? null : sttError,
+                ),
+              ],
               if (sameError) ...[
                 const SizedBox(height: 8),
                 _ErrorText(translateError),
@@ -231,7 +240,8 @@ class _CheckRow extends StatelessWidget {
             child: CircularProgressIndicator(strokeWidth: 2.5),
           ),
         ),
-      CheckState.unknown => const Icon(Icons.radio_button_unchecked,
+      // Прочерк, а не пустой кружок: кружок — это переключатель.
+      CheckState.unknown => const Icon(Icons.remove,
           color: Colors.grey, semanticLabel: 'ещё не проверялась'),
     };
     return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [

@@ -85,6 +85,7 @@ abstract final class AppStrings {
   static const keyFieldHint = 'AQVN…';
   static const keySubmit = 'Проверить и сохранить';
   static const keyChecking = 'Проверяем…';
+  static const keyCheckTitle = 'Проверка ключа';
   static const keyCheckTranslate = 'Перевод';
   static const keyCheckStt = 'Распознавание';
   static const keyStorageBroken = 'Хранилище ключа недоступно: ключ будет '

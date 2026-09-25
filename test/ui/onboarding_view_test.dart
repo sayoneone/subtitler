@@ -32,13 +32,38 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('ai.translate.user — перевод'), findsOneWidget);
     expect(find.text('Проверить и сохранить'), findsOneWidget);
-    expect(find.text('Перевод'), findsOneWidget);
-    expect(find.text('Распознавание'), findsOneWidget);
     expect(tester.widget<TextField>(_keyField).obscureText, isTrue);
     // Отмены нет: возвращаться некуда.
     expect(find.text('Отмена'), findsNothing);
     // Плашки о хранилище нет, пока оно работает.
     expect(find.textContaining('Хранилище ключа недоступно'), findsNothing);
+
+    await closeApp(tester, h);
+  });
+
+  testWidgets('до проверки под кнопкой нет ничего похожего на переключатели',
+      (tester) async {
+    // Два пустых серых кружка «Перевод» и «Распознавание» без заголовка
+    // выглядели как выбор «одно из двух»: человек щёлкал по ним, и ничего
+    // не происходило.
+    final h = await started(storedKey: null);
+    await pumpApp(tester, h.controller);
+
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
+    expect(find.byIcon(Icons.radio_button_checked), findsNothing);
+    expect(find.bySubtype<Radio<Object?>>(), findsNothing);
+    expect(find.text('Перевод'), findsNothing);
+    expect(find.text('Распознавание'), findsNothing);
+
+    // С началом проверки — индикаторы под заголовком.
+    h.controller.debugEmulate(
+        keyCheck: const KeyCheckResult(
+            translate: CheckState.checking, stt: CheckState.checking));
+    await tester.pump();
+    expect(find.text('Проверка ключа'), findsOneWidget);
+    expect(find.text('Перевод'), findsOneWidget);
+    expect(find.text('Распознавание'), findsOneWidget);
+    expect(find.byIcon(Icons.radio_button_unchecked), findsNothing);
 
     await closeApp(tester, h);
   });
