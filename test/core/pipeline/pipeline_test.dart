@@ -128,8 +128,12 @@ void main() {
         session.cues.where((c) => c.status == CueStatus.ok).length;
     expect(recognized, greaterThan(0));
 
-    // Имитируем перезапуск приложения: временная папка исчезла.
-    Directory(workDir).deleteSync(recursive: true);
+    // Временной папки нет: её убрали за давностью или сессию начали на
+    // другом ПК. После полного распознавания нарезку убирает и сам
+    // конвейер.
+    if (Directory(workDir).existsSync()) {
+      Directory(workDir).deleteSync(recursive: true);
+    }
 
     final second = FakeStt(['НЕ ДОЛЖНО ВЫЗЫВАТЬСЯ']);
     final resumed = await build(second, FakeTranslate(), workDir: workDir).process(
@@ -714,9 +718,11 @@ void main() {
     expect(File('$workDir/audio.wav').existsSync(), isFalse,
         reason: 'сотни мегабайт на час видео, после нарезки не нужны');
 
-    // Сегменты пропали, а нераспознанная реплика осталась: звук
-    // извлекается заново и режется снова.
-    Directory('$workDir/segments').deleteSync(recursive: true);
+    // Сегментов нет (всё распознано — конвейер их убрал), а нераспознанная
+    // реплика осталась: звук извлекается заново и режется снова.
+    if (Directory('$workDir/segments').existsSync()) {
+      Directory('$workDir/segments').deleteSync(recursive: true);
+    }
     final unfinished = session.copyWith(cues: [
       session.cues.first.copyWith(status: CueStatus.pending, orig: ''),
       ...session.cues.skip(1),
@@ -792,6 +798,63 @@ void main() {
       ),
       throwsA(isA<PipelineCancelledException>()),
     );
+  });
+
+  // Нарезка — это звук из материалов дела. Раньше она оставалась в
+  // LocalAppData навсегда, вопреки §11 «временные файлы удаляются».
+  group('Нарезка удаляется, когда больше не нужна', () {
+    test('всё распознано — ни нарезки, ни рабочей папки', () async {
+      final copy = freshCopy(video);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+              workDir: workDir)
+          .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+      expect(Directory('$workDir/segments').existsSync(), isFalse);
+      expect(Directory(workDir).existsSync(), isFalse,
+          reason: 'имя рабочей папки повторяет имя видео');
+      expect(File('$copy.subtitler.json').existsSync(), isTrue,
+          reason: 'сессия рядом с видео остаётся');
+    });
+
+    test('реплика не распозналась — нарезка остаётся для повтора', () async {
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = FakeStt(['bir', 'iki'])
+        ..failCalls = kRetryDelays.length + 1
+        ..failWith = const TransientException(statusCode: 500, message: 'boom');
+      await build(stt, FakeTranslate(), workDir: workDir).process(
+          videoPath: freshCopy(video), lang: 'tr-TR', sleep: (_) async {});
+      expect(File('$workDir/segments/seg_001.ogg').existsSync(), isTrue);
+    });
+
+    test('отмена до конца распознавания — нарезка остаётся для продолжения',
+        () async {
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = FakeStt(['bir', 'iki', 'üç']);
+      await build(stt, FakeTranslate(), workDir: workDir).process(
+        videoPath: freshCopy(video),
+        lang: 'tr-TR',
+        sleep: (_) async {},
+        isCancelled: () => stt.calls >= 1,
+      );
+      expect(Directory('$workDir/segments').listSync(), hasLength(3));
+    });
+
+    test('готовая сессия открывается, не оставляя пустой рабочей папки',
+        () async {
+      final copy = freshCopy(video);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final pipeline = build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+          workDir: workDir);
+      await pipeline.process(
+          videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+      if (Directory(workDir).existsSync()) {
+        Directory(workDir).deleteSync(recursive: true);
+      }
+      final probe = await pipeline.detectLanguage(
+          videoPath: copy, sleep: (_) async {});
+      expect(probe.reusedSession, isTrue);
+      expect(Directory(workDir).existsSync(), isFalse);
+    });
   });
 
   group('Смена языка', () {

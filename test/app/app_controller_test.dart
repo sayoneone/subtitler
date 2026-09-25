@@ -470,6 +470,14 @@ void main() {
       expect(stt.callsFor('tr-TR').length + stt.callsFor('uz-UZ').length, 5);
     });
 
+    test('После обработки нарезанного звука в рабочей папке не остаётся',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      await h.controller.openVideo(video);
+      expect(h.controller.stage, AppStage.review);
+      expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse);
+    });
+
     test('Автоопределение идёт среди языков из настроек', () async {
       final h = await started(
           settings: const AppSettings(detectionCandidates: ['uz-UZ', 'kk-KZ']));
@@ -910,9 +918,13 @@ void main() {
       expect(result.inFallback, isFalse);
       expect(File(result.videoPath).existsSync(), isTrue);
       expect(File(beside(video, '_ru.partial.mp4')).existsSync(), isFalse);
+      // SRT для вшивания писался в рабочую папку — и после вшивания
+      // удалён вместе с ней: перевод целиком уже лежит рядом с видео.
       expect(File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt')).existsSync(),
-          isTrue,
-          reason: 'SRT для вшивания — в рабочей папке');
+          isFalse);
+      expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse);
+      expect(File(beside(video, '_ru.srt')).existsSync(), isTrue);
+      expect(File('$video.subtitler.json').existsSync(), isTrue);
 
       await c.revealOutput();
       expect(h.revealed, [result.videoPath]);
@@ -961,6 +973,8 @@ void main() {
       expect(c.saveError!.details, contains('пикселей'));
       expect(File(beside(video, '_ru.mp4')).existsSync(), isFalse);
       expect(File(beside(video, '_ru.partial.mp4')).existsSync(), isFalse);
+      expect(File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt')).existsSync(),
+          isFalse, reason: 'и при ошибке перевод в рабочей папке не остаётся');
       expect(c.stage, AppStage.review, reason: 'правки не теряются');
     });
 

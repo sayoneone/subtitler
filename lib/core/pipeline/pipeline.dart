@@ -155,7 +155,6 @@ class Pipeline {
     final cancelled = isCancelled ?? () => false;
     final report = onProgress ?? (_) {};
 
-    Directory(workDir).createSync(recursive: true);
     log.info('Обработка: $videoPath, язык $lang');
     log.debug('Рабочая папка: $workDir');
     final duration = await runner.probeDuration(videoPath);
@@ -233,6 +232,7 @@ class Pipeline {
       sleep: sleep,
       cancelled: cancelled,
     );
+    if (!session.cues.any(_needsRecognition)) _removeSegments();
     session = await _translateAll(
       session: session,
       report: report,
@@ -296,7 +296,6 @@ class Pipeline {
     if (langs.isEmpty) {
       throw ArgumentError('Не выбрано ни одного языка для определения');
     }
-    Directory(workDir).createSync(recursive: true);
 
     final duration = await runner.probeDuration(videoPath);
     final fingerprint = SourceFingerprint(
@@ -485,6 +484,9 @@ class Pipeline {
   }) async {
     throwIfCancelled(cancelled);
     report(const PipelineProgress(PipelineStage.extractingAudio));
+    // Рабочая папка нужна только нарезке: её имя повторяет имя видео, и
+    // заводить её там, где резать нечего, незачем.
+    Directory(workDir).createSync(recursive: true);
     final audioPath = '$workDir${Platform.pathSeparator}audio.wav';
     try {
       final extracted = await runner.run(
@@ -554,6 +556,27 @@ class Pipeline {
     }
   }
 
+  /// Реплику ещё предстоит распознать — для этого нужна её нарезка.
+  static bool _needsRecognition(Cue cue) =>
+      cue.status == CueStatus.pending || cue.status == CueStatus.failed;
+
+  /// Нарезка — это звук из материалов дела (§11: временные файлы
+  /// удаляются). Нужна она, только пока есть что распознавать; как только
+  /// распознано всё, удаляется вместе с рабочей папкой, если та опустела.
+  /// Понадобится снова (смена языка) — ролик нарежется заново, а уже
+  /// распознанное не потеряется: оно в файле сессии.
+  void _removeSegments() {
+    try {
+      final segments = Directory(_segmentsDir);
+      if (segments.existsSync()) segments.deleteSync(recursive: true);
+      final work = Directory(workDir);
+      if (work.existsSync() && work.listSync().isEmpty) work.deleteSync();
+      log.debug('Всё распознано — нарезка удалена');
+    } on FileSystemException catch (e) {
+      log.warn('Не удалось удалить нарезку: $e');
+    }
+  }
+
   String get _segmentsDir => '$workDir${Platform.pathSeparator}segments';
 
   String _segmentPath(int index) =>
@@ -562,8 +585,7 @@ class Pipeline {
 
   /// Есть ли на диске файлы сегментов, которые ещё предстоит распознать.
   bool _segmentsPresent(Session session) {
-    final todo = session.cues.where(
-        (c) => c.status == CueStatus.pending || c.status == CueStatus.failed);
+    final todo = session.cues.where(_needsRecognition);
     if (todo.isEmpty) return true; // распознавать нечего — файлы не нужны
     return todo.every((c) => File(_segmentPath(c.index)).existsSync());
   }
@@ -600,10 +622,7 @@ class Pipeline {
     required bool Function() cancelled,
   }) async {
     final cues = [...session.cues];
-    final todo = cues
-        .where((c) =>
-            c.status == CueStatus.pending || c.status == CueStatus.failed)
-        .toList();
+    final todo = cues.where(_needsRecognition).toList();
     var done = 0;
     final connection = _Connection();
 

@@ -1296,7 +1296,8 @@ class AppController extends ChangeNotifier {
   ///
   /// Сначала дописываются свежие правки. Оба .srt — рядом с видео (или в
   /// папке приложения, если там нельзя). SRT для вшивания — в рабочей
-  /// папке: на папке только для чтения вшивание иначе падало. Видео
+  /// папке: на папке только для чтения вшивание иначе падало; после
+  /// вшивания, удачного или нет, он удаляется. Видео
   /// кодируется во временный `<имя>_ru.partial.mp4`, проверяется, что
   /// субтитры в кадре видны, и только потом встаёт на место
   /// `<имя>_ru.mp4`. При провале проверки временный файл удаляется.
@@ -1309,6 +1310,8 @@ class AppController extends ChangeNotifier {
     _notify();
 
     String? partial;
+    final workDir = _runtime!.workDirFor(video);
+    final burnSrt = p.join(workDir, 'burn_ru.srt');
     try {
       await flush(); // иначе в файлах рядом с видео — текст до правки
       final session = _session!;
@@ -1319,9 +1322,7 @@ class AppController extends ChangeNotifier {
       final srt = await outputs.writeSrts(session.cues);
       _srtFiles = srt;
 
-      final workDir = _runtime!.workDirFor(video);
       Directory(workDir).createSync(recursive: true);
-      final burnSrt = p.join(workDir, 'burn_ru.srt');
       await File(burnSrt)
           .writeAsString(buildSrt(session.cues, field: SrtField.ru), flush: true);
 
@@ -1380,7 +1381,21 @@ class AppController extends ChangeNotifier {
       _saveStatus = SaveStatus.failed;
     } finally {
       if (partial != null) deleteQuietly(partial, log: log);
+      // Перевод целиком для ffmpeg: после вшивания (удачного или нет) он
+      // не нужен, а лежит в папке с именем видео. Рядом с видео — свой
+      // <имя>_ru.srt, его не трогаем.
+      deleteQuietly(burnSrt, log: log);
+      _removeIfEmpty(workDir);
       _notify();
+    }
+  }
+
+  void _removeIfEmpty(String dir) {
+    try {
+      final folder = Directory(dir);
+      if (folder.existsSync() && folder.listSync().isEmpty) folder.deleteSync();
+    } on FileSystemException catch (e) {
+      log.warn('Не удалось удалить пустую рабочую папку: $e');
     }
   }
 

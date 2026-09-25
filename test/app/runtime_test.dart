@@ -59,4 +59,95 @@ void main() {
     }
     expect(removed.existsSync(), isFalse);
   });
+
+  // Нарезку и SRT для вшивания программа убирает сама, но у недоделанных
+  // сессий (отмена, нет сети, программу закрыли) рабочая папка остаётся.
+  // Раньше такие папки со звуком из материалов дела лежали вечно.
+  test('При запуске удаляются рабочие папки, не тронутые дольше недели',
+      () async {
+    final tmp = Directory.systemTemp.createTempSync('runtime_test_');
+    final log = DebugLog();
+    addTearDown(() async {
+      await log.close();
+      tmp.deleteSync(recursive: true);
+    });
+    final roaming = p.join(tmp.path, 'Roaming', 'ru.subtitler', 'subtitler');
+    final local = p.join(tmp.path, 'Local', 'ru.subtitler', 'subtitler');
+    final old = DateTime.now().subtract(const Duration(days: 8));
+
+    File file(String path, {DateTime? modified}) {
+      final f = File(path)..parent.createSync(recursive: true);
+      f.writeAsBytesSync([1, 2, 3]);
+      if (modified != null) f.setLastModifiedSync(modified);
+      return f;
+    }
+
+    final stale =
+        file(p.join(local, 'work', 'clip_0001', 'segments', 'seg_001.ogg'),
+            modified: old);
+    final fresh =
+        file(p.join(local, 'work', 'clip_0002', 'segments', 'seg_001.ogg'));
+    // Результаты и сессии лежат в других папках — их не трогаем, сколько
+    // бы им ни было.
+    final result = file(p.join(local, 'output', 'clip_ru.mp4'), modified: old);
+    final session =
+        file(p.join(roaming, 'clip.mp4.subtitler.json'), modified: old);
+    PathProviderPlatform.instance = _FakePaths(roaming, local);
+
+    await AppRuntime.prepare(log: log);
+
+    expect(stale.parent.parent.existsSync(), isFalse);
+    expect(fresh.existsSync(), isTrue);
+    expect(result.existsSync(), isTrue);
+    expect(session.existsSync(), isTrue);
+  });
+
+  group('Уборка старых рабочих папок', () {
+    late Directory root;
+    final now = DateTime(2026, 9, 25, 12);
+
+    setUp(() => root = Directory.systemTemp.createTempSync('work_cleanup_'));
+    tearDown(() => root.deleteSync(recursive: true));
+
+    File file(String relative, DateTime modified) {
+      final f = File(p.join(root.path, relative))
+        ..parent.createSync(recursive: true)
+        ..writeAsBytesSync([1]);
+      f.setLastModifiedSync(modified);
+      return f;
+    }
+
+    test('возраст — по самому свежему файлу внутри папки', () async {
+      // Нарезка старая, но SRT для вшивания писали вчера — папка живая.
+      file(p.join('work', 'a_1', 'segments', 'seg_001.ogg'),
+          now.subtract(const Duration(days: 30)));
+      final yesterday = file(p.join('work', 'a_1', 'burn_ru.srt'),
+          now.subtract(const Duration(days: 1)));
+      final old = file(p.join('work', 'b_2', 'segments', 'seg_001.ogg'),
+          now.subtract(kWorkDirMaxAge + const Duration(hours: 1)));
+      Directory(p.join(root.path, 'work', 'c_3')).createSync();
+
+      await removeStaleWorkDirs(p.join(root.path, 'work'), now: now);
+
+      expect(yesterday.existsSync(), isTrue);
+      expect(old.parent.parent.existsSync(), isFalse);
+      expect(Directory(p.join(root.path, 'work', 'c_3')).existsSync(), isFalse,
+          reason: 'пустая папка — брошенная');
+    });
+
+    test('за пределы папки work не выходит', () async {
+      final ancient = now.subtract(const Duration(days: 365));
+      final beside = file(p.join('output', 'clip_ru.mp4'), ancient);
+      final loose = file(p.join('work', 'заметка.txt'), ancient);
+
+      await removeStaleWorkDirs(p.join(root.path, 'work'), now: now);
+
+      expect(beside.existsSync(), isTrue);
+      expect(loose.existsSync(), isTrue, reason: 'трогаем только папки видео');
+    });
+
+    test('папки work нет — ничего не делает', () async {
+      await removeStaleWorkDirs(p.join(root.path, 'нет такой'), now: now);
+    });
+  });
 }

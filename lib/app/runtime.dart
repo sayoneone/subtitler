@@ -65,6 +65,9 @@ class AppRuntime {
         p.join(Platform.isAndroid ? support.path : cache, 'output'));
 
     _removeOldWorkDir(p.join(support.path, 'work'), work.path, journal);
+    // Ждём, а не в фоне: видео, переданное при запуске, откроется сразу
+    // после подготовки, и его рабочая папка не должна исчезнуть под ним.
+    await removeStaleWorkDirs(work.path, log: journal);
 
     journal.info('Папка приложения: ${support.path}');
     journal.info('Рабочая папка: ${work.path}');
@@ -102,7 +105,9 @@ class AppRuntime {
   }
 
   /// Рабочая папка под конкретное видео: имя стабильно, поэтому повторная
-  /// обработка того же файла переиспользует уже нарезанные сегменты.
+  /// обработка недоделанной сессии переиспользует уже нарезанные сегменты.
+  /// Когда распознано всё, нарезку ядро удаляет, а старые папки убирает
+  /// [removeStaleWorkDirs].
   String workDirFor(String videoPath) {
     final name = p.basenameWithoutExtension(videoPath);
     return p.join(workDir, '${_sanitize(name)}_${stablePathHash(videoPath)}');
@@ -110,4 +115,59 @@ class AppRuntime {
 
   static String _sanitize(String name) =>
       name.replaceAll(RegExp(r'[^A-Za-zА-Яа-я0-9_-]+'), '_');
+}
+
+/// Рабочие папки, которые не трогали дольше этого, удаляются при запуске.
+///
+/// Нарезка удаляется сама, как только все реплики распознаны, а SRT для
+/// вшивания — сразу после сохранения. Остаются они только у недоделанных
+/// сессий: обработку отменили, пропала сеть, программу закрыли посреди
+/// работы. Нарезка нужна им, чтобы продолжить без повторной нарезки, но и
+/// без неё ничего не теряется: распознанное лежит в файле сессии, а ролик
+/// нарежется заново — это минуты работы ffmpeg, а не деньги. Неделя
+/// покрывает обычный перерыв в работе с роликом (выходные, несколько дней
+/// на другом деле); дольше хранить звук из материалов дела незачем.
+const Duration kWorkDirMaxAge = Duration(days: 7);
+
+/// Удаляет из [workRoot] рабочие папки видео, в которых ничего не менялось
+/// дольше [maxAge]. Возраст считается по самому свежему файлу внутри;
+/// папка без файлов — брошенная. Трогает только подпапки [workRoot]:
+/// сессии (.subtitler.json), субтитры и видео лежат в других местах и
+/// сюда не попадают.
+Future<void> removeStaleWorkDirs(
+  String workRoot, {
+  Duration maxAge = kWorkDirMaxAge,
+  DateTime? now,
+  DebugLog? log,
+}) async {
+  final journal = log ?? DebugLog.instance;
+  final root = Directory(workRoot);
+  if (!root.existsSync()) return;
+  final limit = (now ?? DateTime.now()).subtract(maxAge);
+  var removed = 0;
+  for (final entry in root.listSync(followLinks: false)) {
+    if (entry is! Directory) continue;
+    try {
+      final newest = _newestFileTime(entry);
+      if (newest != null && newest.isAfter(limit)) continue;
+      await entry.delete(recursive: true);
+      removed++;
+    } on FileSystemException catch (e) {
+      // Файл держит другая программа — уберём при следующем запуске.
+      journal.warn('Не удалось удалить старую рабочую папку: $e');
+    }
+  }
+  if (removed > 0) {
+    journal.info('Удалено рабочих папок старше ${maxAge.inDays} дн.: $removed');
+  }
+}
+
+DateTime? _newestFileTime(Directory dir) {
+  DateTime? newest;
+  for (final entry in dir.listSync(recursive: true, followLinks: false)) {
+    if (entry is! File) continue;
+    final modified = entry.statSync().modified;
+    if (newest == null || modified.isAfter(newest)) newest = modified;
+  }
+  return newest;
 }
