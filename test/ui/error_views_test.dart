@@ -133,7 +133,12 @@ void main() {
     expect(text, isNot(contains(kTestApiKey)));
     await tester.pump();
     expect(find.textContaining('Журнал сохранён:'), findsOneWidget);
-    expect(find.textContaining('нет текста записей'), findsOneWidget);
+    // Скрыты только папки с видео: пути профиля в журнале остаются, и
+    // обещать «нет названий папок» вообще было бы неправдой.
+    expect(
+        find.textContaining(
+            'В нём нет текста записей и названий папок с видео.'),
+        findsOneWidget);
 
     await closeApp(tester, h);
   });

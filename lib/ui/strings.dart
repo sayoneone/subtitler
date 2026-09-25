@@ -33,8 +33,10 @@ abstract final class AppStrings {
   static const logClear = 'Очистить';
   static const saveLog = 'Сохранить журнал';
   static const shareLog = 'Отправить журнал';
+  // Скрыты только папки с видео: пути профиля (папка программы, рабочая
+  // папка) в журнале остаются — обещать «нет названий папок» нельзя.
   static String logSaved(String path) => 'Журнал сохранён: $path. '
-      'В нём нет текста записей и названий папок.';
+      'В нём нет текста записей и названий папок с видео.';
   static const logSaveFailed =
       'Не удалось сохранить журнал — причина записана в журнал работы';
   static const logFileMissing = 'Файл журнала ещё не создан';
