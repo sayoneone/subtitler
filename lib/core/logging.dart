@@ -93,7 +93,10 @@ class DebugLog {
     if (secret != null && secret.length >= 8) _secrets.add(secret);
   }
 
-  String _mask(String message) {
+  /// Вырезает из [message] все секреты, зарегистрированные через [redact].
+  /// Нужна не только журналу: текст ошибки, который интерфейс покажет в
+  /// «Технических деталях», проходит через ту же маску.
+  String mask(String message) {
     var result = message;
     for (final secret in _secrets) {
       result = result.replaceAll(secret, '***КЛЮЧ***');
@@ -102,7 +105,7 @@ class DebugLog {
   }
 
   void add(LogLevel level, String message) {
-    final entry = LogEntry(DateTime.now(), level, _mask(message));
+    final entry = LogEntry(DateTime.now(), level, mask(message));
     entries.add(entry);
     if (entries.length > maxEntries) entries.removeAt(0);
     if (!_controller.isClosed) _controller.add(entry);
