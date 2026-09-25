@@ -1,14 +1,13 @@
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../app/debug_controller.dart';
 import '../core/languages.dart';
-import '../core/logging.dart';
 import '../core/models.dart';
 import '../core/pipeline/language_detector.dart';
 import '../core/pipeline/pipeline.dart';
+import 'log_panel.dart';
 
 const _videoTypes = XTypeGroup(
   label: 'Видео',
@@ -99,7 +98,7 @@ class _DebugScreenState extends State<DebugScreen>
                   controller: _tabs,
                   children: [
                     _left(),
-                    _LogPanel(log: c.log, onSave: c.saveLog),
+                    _log(),
                   ],
                 ),
               ),
@@ -113,13 +112,22 @@ class _DebugScreenState extends State<DebugScreen>
             children: [
               Expanded(flex: 3, child: _left()),
               const VerticalDivider(width: 1),
-              Expanded(flex: 2, child: _LogPanel(log: c.log, onSave: c.saveLog)),
+              Expanded(flex: 2, child: _log()),
             ],
           );
         },
       ),
     );
   }
+
+  /// Тот же журнал, что в приложении, но как раньше на стенде: подробные
+  /// записи видны сразу, журнал можно очистить.
+  Widget _log() => LogPanel(
+        log: c.log,
+        onSave: c.saveLog,
+        onClear: c.log.clear,
+        showDebugInitially: true,
+      );
 
   Widget _left() {
     return ListView(
@@ -667,114 +675,5 @@ class _CueRowState extends State<_CueRow> {
         ),
       ]),
     );
-  }
-}
-
-class _LogPanel extends StatefulWidget {
-  final DebugLog log;
-  final VoidCallback onSave;
-  const _LogPanel({required this.log, required this.onSave});
-
-  @override
-  State<_LogPanel> createState() => _LogPanelState();
-}
-
-class _LogPanelState extends State<_LogPanel> {
-  final _scroll = ScrollController();
-  bool _showDebug = true;
-
-  @override
-  void initState() {
-    super.initState();
-    widget.log.stream.listen((_) {
-      if (!mounted) return;
-      setState(() {});
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scroll.hasClients) {
-          _scroll.jumpTo(_scroll.position.maxScrollExtent);
-        }
-      });
-    });
-  }
-
-  @override
-  void dispose() {
-    _scroll.dispose();
-    super.dispose();
-  }
-
-  Color _color(LogLevel level) => switch (level) {
-        LogLevel.debug => Colors.grey,
-        LogLevel.info => Colors.black87,
-        LogLevel.warn => Colors.orange.shade800,
-        LogLevel.error => Colors.red.shade700,
-      };
-
-  @override
-  Widget build(BuildContext context) {
-    final entries = widget.log.entries
-        .where((e) => _showDebug || e.level != LogLevel.debug)
-        .toList();
-
-    return Column(children: [
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        child: Row(children: [
-          const Text('Журнал'),
-          const Spacer(),
-          Tooltip(
-            message: 'Показывать подробные записи',
-            child: Row(children: [
-              const Text('debug', style: TextStyle(fontSize: 12)),
-              Switch(
-                value: _showDebug,
-                onChanged: (v) => setState(() => _showDebug = v),
-              ),
-            ]),
-          ),
-          IconButton(
-            tooltip: 'Скопировать',
-            icon: const Icon(Icons.copy, size: 18),
-            onPressed: () =>
-                Clipboard.setData(ClipboardData(text: widget.log.asText())),
-          ),
-          IconButton(
-            tooltip: 'Сохранить в файл',
-            icon: const Icon(Icons.save_alt, size: 18),
-            onPressed: widget.onSave,
-          ),
-          IconButton(
-            tooltip: 'Очистить',
-            icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () => setState(widget.log.clear),
-          ),
-        ]),
-      ),
-      const Divider(height: 1),
-      Expanded(
-        child: Container(
-          color: const Color(0xFFF7F7F7),
-          child: ListView.builder(
-            controller: _scroll,
-            padding: const EdgeInsets.all(8),
-            itemCount: entries.length,
-            itemBuilder: (context, i) {
-              final e = entries[i];
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 2),
-                child: SelectableText(
-                  '${e.stamp}  ${e.message}',
-                  style: TextStyle(
-                    fontFamily: 'monospace',
-                    fontSize: 11,
-                    color: _color(e.level),
-                  ),
-                ),
-              );
-            },
-          ),
-        ),
-      ),
-    ]);
   }
 }
