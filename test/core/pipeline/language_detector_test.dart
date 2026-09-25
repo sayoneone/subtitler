@@ -138,6 +138,45 @@ void main() {
       }
     });
 
+    test('Калька обычного слова соседа не получает очка за своё окончание',
+        () {
+      // aman, kavga, kendimi, organ — обычные турецкие слова. Узбекская
+      // модель, записав их, слышала турецкую речь, а не узбекские -aman,
+      // -ga, -dimi, -gan. Зеркально köpinçe, tuşunça, turmuş, kelacak —
+      // турецкая калька узбекских ko'pincha, tushuncha, turmush, kelajak.
+      const turkishHeardByUzbek = ['aman', 'kavga', 'kendimi', 'organ'];
+      const uzbekHeardByTurkish = [
+        'köpinçe', 'tuşunça', 'turmuş', 'ötmiş', 'kelacak', 'kömak', //
+        'ihtiyor', 'ziyorat',
+      ];
+      for (final word in turkishHeardByUzbek) {
+        final f = languageFeatures(word, 'uz-UZ', against: ['tr-TR']);
+        expect(f.ownSuffix, 0, reason: word);
+        expect(f.foreignSuffix, 0, reason: word);
+      }
+      for (final word in uzbekHeardByTurkish) {
+        final f = languageFeatures(word, 'tr-TR', against: ['uz-UZ']);
+        expect(f.ownSuffix, 0, reason: word);
+        expect(f.foreignSuffix, 0, reason: word);
+      }
+    });
+
+    test('Окончание соседа не отнимает очка у своих форм', () {
+      // Узбекские turmush и kumush похожи окончанием на турецкое -mış, но
+      // турецкие gelmiş, yapmışlar, görmüşler от этого не перестают быть
+      // турецкими: очко снимает только калька целого слова.
+      for (final word in ['gelmiş', 'yapmışlar', 'görmüşler']) {
+        final f = languageFeatures(word, 'tr-TR', against: ['uz-UZ']);
+        expect(f.ownSuffix, 1, reason: word);
+      }
+      // И наоборот: узбекские boraman и ishlaman — свои -aman, хотя
+      // турецкие anlaman и yapmaman тоже оканчиваются на -man.
+      for (final word in ['boraman', 'kelaman', 'ishlaman']) {
+        final f = languageFeatures(word, 'uz-UZ', against: ['tr-TR']);
+        expect(f.ownSuffix, 1, reason: word);
+      }
+    });
+
     test('Без соседей по письменности чужих слов не бывает', () {
       // Русская модель пишет кириллицей — латинская калька с ней несравнима.
       final f = languageFeatures('yarin sabah', 'uz-UZ', against: ['ru-RU']);
@@ -289,6 +328,28 @@ void main() {
       expect(verdict.mixed, isFalse, reason: verdict.describe());
       expect(verdict.confidence, LanguageConfidence.high,
           reason: verdict.describe());
+    });
+
+    test('Турецкая речь с короткой репликой «aman kavga etmeyin»: '
+        'реплики не расходятся', () {
+      // Узбекская модель пишет aman и kavga так же, как турецкая. Очко за
+      // узбекские -aman и -ga отдало бы ей короткую реплику.
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'dün akşam markette sıra beklerken iki adam birbirine bağırmaya '
+              'başladı',
+          'kasiyer polisi aradı ben de dışarı çıkıp arabada bekledim',
+          'aman kavga etmeyin',
+        ],
+        'uz-UZ': [
+          "dun aqsham marketta sira beklarken iki adam birbirina bog'irmaya "
+              'boshladi',
+          'kasiyer polisi aradi ben de dishari chiqip arabada bekladim',
+          'aman kavga etmayin',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+      expect(verdict.mixed, isFalse, reason: verdict.describe());
     });
 
     test("Узбекская бытовая речь с demak, ko'pincha, tushuncha: выбор уверенный",

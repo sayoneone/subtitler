@@ -14,7 +14,8 @@ export '../models.dart' show LanguageConfidence;
 //       − 0.3·[зацикливание] − штраф за однообразие,
 //
 // где own — доля слов из словаря своего языка, ownSuffix — доля слов вне
-// словаря, но с характерным окончанием своего языка, foreign и
+// словаря, но с характерным окончанием своего языка (кроме кальки
+// «похожих» слов соседа — см. Lexicon.isLookalikeWord), foreign и
 // foreignSuffix — то же для соседнего языка («чужие» слова, узнанные по
 // скелету), relLength — длина текста относительно самой длинной версии той
 // же реплики. Доли считаются по весам слов (см. kShortWordWeight).
@@ -170,7 +171,11 @@ LanguageFeatures languageFeatures(
       foreign += weight;
       continue;
     }
-    if (lexicon != null && lexicon.hasSuffix(word)) {
+    if (lexicon != null &&
+        lexicon.hasSuffix(word) &&
+        // Калька обычного слова соседа (kavga, aman у узбекской модели) —
+        // не своё окончание.
+        !rivals.any((rival) => lexiconFor(rival)!.isLookalikeWord(word))) {
       ownSuffix += weight;
     } else if (lexicon != null && lexicon.isLookalike(word)) {
       // Обычное слово своего языка, лишь похожее на соседа, — ничьё.

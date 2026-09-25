@@ -153,8 +153,17 @@ class Lexicon {
   /// этого языка такое слово не признак чужой речи.
   final List<RegExp> lookalikes;
 
+  /// Те из [lookalikes], что узнают само слово, а не только окончание:
+  /// шаблон привязан к началу слова знаком ^ (kelajak, kavga, aman).
+  /// См. [isLookalikeWord].
+  final List<RegExp> _wholeWordLookalikes;
+
   Lexicon._(this.lang, this.words, this.suffixes, this.lookalikes)
-      : skeletons = words.map(skeleton).toSet();
+      : skeletons = words.map(skeleton).toSet(),
+        _wholeWordLookalikes = [
+          for (final r in lookalikes)
+            if (r.pattern.startsWith('^')) r,
+        ];
 
   factory Lexicon._build(
     String lang,
@@ -183,6 +192,19 @@ class Lexicon {
   bool isLookalike(String word) {
     final s = _suffixSkeleton(word);
     return lookalikes.any((r) => r.hasMatch(s));
+  }
+
+  /// Слово [word] (в записи любой модели) — целое «похожее» слово этого
+  /// языка, а не просто слово с похожим окончанием.
+  ///
+  /// Соседняя модель, записавшая такое слово, слышала речь на этом языке,
+  /// и очка за своё окончание оно ей не даёт: узбекская калька турецкого
+  /// kavga — не узбекский дательный -ga. Шаблоны без ^ здесь не
+  /// участвуют: узбекский шаблон окончания -mish (turmush, kumush) иначе
+  /// отнял бы очко у всех турецких gelmiş и yapmışlar.
+  bool isLookalikeWord(String word) {
+    final s = _suffixSkeleton(word);
+    return _wholeWordLookalikes.any((r) => r.hasMatch(s));
   }
 }
 
@@ -272,6 +294,11 @@ const List<String> _turkishSuffixes = [
 ];
 
 /// Обычные турецкие слова, похожие на узбекские окончания.
+///
+/// Шаблон с ^ описывает целое слово: у узбекской модели калька такого
+/// слова тоже не получает очка за узбекское окончание
+/// (Lexicon.isLookalikeWord). Шаблон без ^ описывает только окончание и
+/// узбекским формам очка не отнимает. То же для узбекского списка ниже.
 ///
 /// - На -aman «я …-ю»: aman «ой, осторожно», (kos)kocaman «огромный»,
 ///   kahraman «герой», yaman «ловкий».
