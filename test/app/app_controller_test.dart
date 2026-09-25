@@ -978,6 +978,26 @@ void main() {
       expect(c.stage, AppStage.review, reason: 'правки не теряются');
     });
 
+    // Замечание ревью d2: вписанный человеком текст уходил в ffmpeg и
+    // libass как разметка. «{…}» — блок тегов ASS: такая реплика в кадре
+    // пропадала целиком, а проверка видимости (она смотрит самую длинную
+    // реплику) ложно сообщала «Субтитры не отрисовались».
+    test('Фигурные скобки в переводе вшиваются как есть', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      const marked = '{неразборчиво: говорят двое сразу, шумит улица}';
+      c.updateTranslation(1, marked);
+      c.updateTranslation(3, 'вечером');
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
+      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
+          contains(marked),
+          reason: 'файл для человека — без экранирования');
+    }, skip: burnSkip);
+
     test('Готовый файл открыт в другой программе — понятное сообщение',
         () async {
       final (h, _, video) = await turkishVideo();

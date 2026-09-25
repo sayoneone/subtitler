@@ -103,12 +103,17 @@ void main() {
       cue(6, 5, 6, '', status: CueStatus.pending),
       cue(7, 6, 7, 'Ждёт распознавания, но вписано',
           status: CueStatus.pending),
+      cue(8, 7, 8, ' {шум}\n\n  цена <5 тысяч> '),
     ];
-    final burned = parseSrt(buildSrt(cues, field: SrtField.ru));
+    final burned =
+        parseSrt(buildSrt(cues, field: SrtField.ru, forBurning: true));
     final shown = CueTimeline(cues).visible;
     expect(shown.map((c) => c.range.start),
         burned.map((c) => c.range.start));
-    expect(shown.map((c) => c.ru.trim()), burned.map((c) => c.ru));
+    // Во вшивание текст уходит экранированным — снимет экранирование libass.
+    expect(
+        shown.map((c) => escapeSubtitleMarkup(subtitleText(c, SrtField.ru))),
+        burned.map((c) => c.ru));
   });
 
   test('пустой и пробельный перевод не показываются', () {

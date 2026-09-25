@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/cue_timeline.dart';
 import '../../core/models.dart';
+import '../../core/srt.dart';
 
 /// Стиль, которым ffmpeg вшивает наши SRT, — чтобы предпросмотр выглядел
 /// как готовое видео.
@@ -94,7 +95,12 @@ class _SubtitleOverlayState extends State<SubtitleOverlay> {
     super.dispose();
   }
 
-  String? _textAt(Duration t) => _timeline.at(t)?.ru.trim();
+  /// Тот же текст, что уйдёт во вшивание (без экранирования разметки —
+  /// libass его снимает): без пустых строк и пробелов по краям строк.
+  String? _textAt(Duration t) {
+    final cue = _timeline.at(t);
+    return cue == null ? null : subtitleText(cue, SrtField.ru);
+  }
 
   /// Позиция приходит до 30 раз в секунду, а реплика меняется раз в
   /// несколько секунд, поэтому перерисовка — только при смене текста.

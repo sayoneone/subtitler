@@ -1328,8 +1328,9 @@ class AppController extends ChangeNotifier {
       _srtFiles = srt;
 
       Directory(workDir).createSync(recursive: true);
-      await File(burnSrt)
-          .writeAsString(buildSrt(session.cues, field: SrtField.ru), flush: true);
+      await File(burnSrt).writeAsString(
+          buildSrt(session.cues, field: SrtField.ru, forBurning: true),
+          flush: true);
 
       var names = srt.names;
       var inFallback = srt.inFallback;

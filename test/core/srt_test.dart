@@ -53,4 +53,45 @@ void main() {
     final parsed = parseSrt(buildSrt(multi, field: SrtField.ru));
     expect(parsed.single.ru, 'Первая строка\nВторая строка');
   });
+
+  group('Текст, вписанный человеком', () {
+    Cue typed(String ru) => Cue(
+        index: 1,
+        range: const TimeRange(0, 2),
+        orig: '',
+        ru: ru,
+        status: CueStatus.ok,
+        flags: const {});
+
+    test('пустые строки внутри реплики схлопываются, края строк — без '
+        'пробелов', () {
+      // Двойной Enter в поле перевода. Строка из одних пробелов в SRT
+      // обрывает реплику в ffmpeg: «Вторая строка» не попадала в кадр.
+      final cue = typed('  Первая строка \r\n\n \t \nВторая\tстрока  ');
+      expect(subtitleText(cue, SrtField.ru), 'Первая строка\nВторая строка');
+      expect(parseSrt(buildSrt([cue], field: SrtField.ru)).single.ru,
+          'Первая строка\nВторая строка');
+      expect(subtitleText(typed(' \n\t\n '), SrtField.ru), isEmpty);
+    });
+
+    test('в файле для человека текст как есть', () {
+      const text = r'{шум} цена <5 тысяч> и папка C:\new';
+      expect(buildSrt([typed(text)], field: SrtField.ru), contains(text));
+    });
+
+    test('во вшивании разметка ffmpeg и libass обезврежена', () {
+      const wj = '\u2060';
+      expect(escapeSubtitleMarkup('{шум} {C:1} {\\an8}'),
+          '\\{$wjшум\\} \\{${wj}C:1\\} \\{$wj\\${wj}an8\\}');
+      expect(escapeSubtitleMarkup('<b>да</b> < i>нет <5 тысяч> x<y'),
+          '<${wj}b>да<$wj/b> <$wj i>нет <${wj}5 тысяч> x<${wj}y');
+      expect(escapeSubtitleMarkup(r'C:\new\N \h'),
+          'C:\\${wj}new\\${wj}N \\${wj}h');
+      expect(escapeSubtitleMarkup('обычный текст, без разметки: 5 > 3'),
+          'обычный текст, без разметки: 5 > 3');
+      expect(
+          buildSrt([typed('{шум}')], field: SrtField.ru, forBurning: true),
+          contains('\\{$wjшум\\}'));
+    });
+  });
 }

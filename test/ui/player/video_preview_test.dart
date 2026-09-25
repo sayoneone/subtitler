@@ -87,6 +87,17 @@ void main() {
     expect(shownText(tester), isNull);
   });
 
+  testWidgets('в кадре текст как во вшивании: без пустых строк и пробелов '
+      'по краям, знаки разметки — как есть', (tester) async {
+    final player = FakePreviewPlayer()..loaded();
+    await pumpPreview(tester, player, [
+      cue(1, 1.0, 3.0, '  {шум}  \n\n   \nцена <5 тысяч> '),
+    ]);
+
+    await at(tester, player, 1500);
+    expect(shownText(tester), '{шум}\nцена <5 тысяч>');
+  });
+
   testWidgets('правка перевода сразу видна в кадре, без движения позиции',
       (tester) async {
     final player = FakePreviewPlayer()..loaded();
