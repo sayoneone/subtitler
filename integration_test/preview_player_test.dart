@@ -7,9 +7,11 @@
 //   $env:SUBTITLER_FFMPEG = '…\ffmpeg.exe'
 //   flutter test integration_test -d windows
 //
-// Стоит прогонять после обновления Flutter или media_kit: например, с
-// переходом Windows на Impeller текстура media_kit давала чёрный кадр, и
-// никакой другой тест этого не заметит.
+// CI этот тест не запускает, поэтому прогон вручную обязателен перед
+// тегом релиза и после обновления Flutter или media_kit (README,
+// спецификация §14): например, с переходом Windows на Impeller текстура
+// media_kit давала чёрный кадр, и никакой другой тест этого не заметит.
+// Без SUBTITLER_FFMPEG оба теста пропускаются молча.
 import 'dart:io';
 
 import 'package:flutter/material.dart';
