@@ -24,9 +24,23 @@ dependencies:
   # ffmpeg на Android (на десктопе используем внешний ffmpeg.exe)
   ffmpeg_kit_flutter_new: ^4.6.2
 
-  # Плеер предпросмотра (media_kit) появится вместе с редактором из плана 2.
-  # Пока его нет в зависимостях намеренно: он тянет собственную сборку ffmpeg,
-  # и в APK оказывались ДВЕ копии ffmpeg — наша и его. Это 271 МБ вместо 60.
+  # Плеер предпросмотра: на каждой платформе свой, общий интерфейс —
+  # lib/ui/player/preview_player.dart.
+  # Windows: media_kit. libmpv со своим ffmpeg и ANGLE лежат рядом с exe и не
+  # зависят ни от Media Foundation, ни от кодеков ОС — поэтому работает и на
+  # N/LTSC-редакциях служебных ПК, где этих кодеков нет.
+  # Android и macOS: официальный video_player (ExoPlayer / AVFoundation) —
+  # ни одной .so в APK не добавляет.
+  # Нативные библиотеки media_kit подключаем ТОЛЬКО для Windows. Общий
+  # media_kit_libs_video и media_kit_libs_android_video НЕЛЬЗЯ: они кладут в
+  # APK вторую копию ffmpeg рядом с нашей — было 271 МБ вместо 60. CI падает,
+  # если в APK появится libmpv.so.
+  # Версии прибиты точно: media_kit в режиме limited maintenance, и новая
+  # сборка libmpv — это другой ffmpeg внутри и другой размер архива.
+  media_kit: 1.2.6
+  media_kit_video: 2.0.1
+  media_kit_libs_windows_video: 1.0.11
+  video_player: 2.14.0
 
   # приём и выдача файлов (план 2)
   receive_sharing_intent: ^1.9.0
@@ -41,9 +55,21 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # Проверка настоящего плеера (integration_test/): libmpv и текстура ANGLE
+  # работают только в собранном приложении, не в `flutter test`.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^6.0.0
 
 flutter:
   uses-material-design: true
   assets:
     - assets/fonts/
+  # Тот же файл, что libass получает при вшивании: субтитры в предпросмотре
+  # рисуются им же, иначе переносы строк и ширина реплики разойдутся с
+  # готовым видео. Одного `assets:` мало — шрифтом Flutter видит только
+  # объявленное семейство.
+  fonts:
+    - family: NotoSans
+      fonts:
+        - asset: assets/fonts/NotoSans-Regular.ttf
