@@ -1,132 +1,16 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/cloud/api_errors.dart';
 import 'package:subtitler/core/cloud/retry.dart';
 import 'package:subtitler/core/cloud/speechkit_client.dart';
-import 'package:subtitler/core/cloud/translate_client.dart';
 import 'package:subtitler/core/ffmpeg/process_runner.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/pipeline/pipeline.dart';
 import 'package:subtitler/core/session_store.dart';
 
-/// Подставной STT: отдаёт заранее заданные тексты по порядку и считает вызовы.
-///
-/// [failCalls] первых обращений падают с [failWith]. Считаются именно
-/// обращения, а не сегменты: чтобы сегмент действительно провалился,
-/// уронить надо все его попытки, иначе повтор молча всё починит и тест
-/// проверит не то, что заявлено.
-class FakeStt implements SpeechKitClient {
-  final List<String> texts;
-  int calls = 0;
-  int failCalls = 0;
-  Object? failWith;
-
-  FakeStt(this.texts);
-
-  @override
-  Future<String> recognize({
-    required List<int> oggBytes,
-    required String lang,
-  }) async {
-    calls++;
-    if (calls <= failCalls) throw failWith!;
-    final index = calls - failCalls - 1;
-    return index < texts.length ? texts[index] : '';
-  }
-
-  @override
-  Dio get dio => throw UnimplementedError();
-  @override
-  String get apiKey => 'fake';
-  @override
-  String get baseUrl => 'fake';
-}
-
-/// Подставной STT для определения языка: ответ зависит от пары
-/// (язык, реплика), а не от порядка вызовов — порядок проб меняется
-/// вместе с алгоритмом, и тест не должен на него опираться.
-///
-/// Какая это реплика, узнаём по байтам: сравниваем тело запроса с файлами
-/// сегментов в рабочей папке.
-class ScriptedStt implements SpeechKitClient {
-  final String workDir;
-  final Map<String, Map<int, String>> texts;
-
-  /// Пары (язык, реплика), на которых сервис отвечает ошибкой всегда —
-  /// то есть и на все повторы.
-  final Set<(String, int)> failing;
-  final List<(String, int)> calls = [];
-
-  ScriptedStt(this.workDir, this.texts, {this.failing = const {}});
-
-  @override
-  Future<String> recognize({
-    required List<int> oggBytes,
-    required String lang,
-  }) async {
-    final cue = _cueIndexOf(oggBytes);
-    calls.add((lang, cue));
-    if (failing.contains((lang, cue))) {
-      throw const TransientException(statusCode: 500, message: 'boom');
-    }
-    return texts[lang]?[cue] ?? '';
-  }
-
-  int _cueIndexOf(List<int> bytes) {
-    final dir = Directory('$workDir${Platform.pathSeparator}segments');
-    for (final file in dir.listSync().whereType<File>()) {
-      final content = file.readAsBytesSync();
-      if (content.length != bytes.length) continue;
-      var same = true;
-      for (var i = 0; i < content.length; i++) {
-        if (content[i] != bytes[i]) {
-          same = false;
-          break;
-        }
-      }
-      if (same) {
-        return int.parse(
-            RegExp(r'seg_(\d+)\.ogg$').firstMatch(file.path)!.group(1)!);
-      }
-    }
-    throw StateError('Запрос не совпал ни с одним сегментом');
-  }
-
-  List<(String, int)> callsFor(String lang) =>
-      calls.where((c) => c.$1 == lang).toList();
-
-  @override
-  Dio get dio => throw UnimplementedError();
-  @override
-  String get apiKey => 'fake';
-  @override
-  String get baseUrl => 'fake';
-}
-
-class FakeTranslate implements TranslateClient {
-  int calls = 0;
-  List<String> lastTexts = const [];
-
-  @override
-  Future<List<String>> translate({
-    required List<String> texts,
-    required String sourceLang,
-  }) async {
-    calls++;
-    lastTexts = texts;
-    return texts.map((t) => 'RU:$t').toList();
-  }
-
-  @override
-  Dio get dio => throw UnimplementedError();
-  @override
-  String get apiKey => 'fake';
-  @override
-  String get baseUrl => 'fake';
-}
+import '../../support/fakes.dart';
 
 void main() {
   late Directory tmp;
