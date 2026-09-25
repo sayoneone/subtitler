@@ -273,6 +273,25 @@ class AppController extends ChangeNotifier {
     unawaited(openVideo(video));
   }
 
+  /// Экран ключа закрыт. Вернулись на главный экран — видео из очереди
+  /// открывается. Вернулись к другому видео (предпросмотр, итог отмены или
+  /// ошибки) — очередь сбрасывается: иначе ролик открылся бы сам много
+  /// позже, при следующем вводе ключа на главном экране, и ушёл бы в
+  /// платное распознавание.
+  void _afterKeyScreen() {
+    if (_stage == AppStage.home) {
+      _openPendingVideo();
+    } else {
+      _dropPendingVideo();
+    }
+  }
+
+  void _dropPendingVideo() {
+    if (_pendingVideo == null) return;
+    log.info('Видео, ждавшее ключа, не открыто: на экране другое видео');
+    _pendingVideo = null;
+  }
+
   /// Программу запустили ещё раз, пока окно открыто: видео бросили на
   /// значок или ярлык. Второе окно не открывается — запускалка передаёт
   /// путь сюда ([video] `null` — запуск без видео, окно только выходит
@@ -280,10 +299,13 @@ class AppController extends ChangeNotifier {
   ///
   /// Свободна программа (главный экран, итог отмены или ошибки) — видео
   /// открывается, как при перетаскивании в окно. Ещё не готова (подготовка,
-  /// ввод ключа) — ждёт, как видео первого запуска. Занята (обработка,
-  /// сохранение, предпросмотр с правками) — сообщение, а не очередь:
-  /// видео, которое само открылось бы позже, посреди правки чужого ролика,
-  /// только запутает. Человек закончит и перетащит его ещё раз.
+  /// первый ввод ключа) — ждёт, как видео первого запуска, и откроется на
+  /// главном экране сразу после ключа. В остальных случаях (обработка,
+  /// сохранение, предпросмотр с правками, смена ключа) — сообщение, а не
+  /// очередь: видео, которое само открылось бы позже, посреди правки
+  /// чужого ролика или при следующей смене ключа, только запутает, а его
+  /// распознавание оплатится без спроса. Человек закончит и перетащит его
+  /// ещё раз.
   void receiveFromAnotherLaunch(String? video) {
     if (video == null) {
       log.info('Программу запустили ещё раз — выводим окно вперёд');
@@ -294,8 +316,24 @@ class AppController extends ChangeNotifier {
     log.hideFolderOf(video);
     log.info('Видео передано повторным запуском: $video');
     switch (_stage) {
-      case AppStage.starting || AppStage.needsKey:
+      case AppStage.starting:
         _pendingVideo = video;
+        return;
+      // Первый ввод ключа (или после «Удалить ключ»): вернуться отсюда
+      // можно только на главный экран, там видео и откроется.
+      case AppStage.needsKey
+          when _stageBeforeKeyChange == null && _videoPath == null:
+        _pendingVideo = video;
+        return;
+      case AppStage.needsKey when _videoPath == null:
+        // Ключ меняют с главного экрана: текущего видео нет, и сообщение
+        // не про него.
+        _notice = UserError(
+          title: 'Сначала закончите со сменой ключа',
+          hint: 'Чтобы открыть «${p.basename(video)}», нажмите «Проверить '
+              'и сохранить» или «Отмена», а потом перетащите видео ещё раз.',
+        );
+        _notify();
         return;
       case AppStage.broken:
         return;
@@ -751,13 +789,14 @@ class AppController extends ChangeNotifier {
       if (previous == AppStage.failed && _videoPath != null) {
         // «Изменить ключ» из ошибки: с новым ключом продолжаем с того же
         // места, а не заставляем выбирать видео заново.
+        _dropPendingVideo();
         unawaited(_startProcessing(_videoPath!));
         return true;
       }
       _stage = _returnStage(previous);
     }
     _notify();
-    _openPendingVideo();
+    _afterKeyScreen();
     return true;
   }
 
@@ -788,6 +827,7 @@ class AppController extends ChangeNotifier {
     _keyCheck = KeyCheckResult.idle;
     _stage = _returnStage(previous);
     _notify();
+    _afterKeyScreen();
   }
 
   /// «Удалить ключ» в настройках: из хранилища и из памяти.

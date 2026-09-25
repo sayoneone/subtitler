@@ -447,6 +447,140 @@ void main() {
       expect(h.controller.stage, AppStage.home);
       expect(h.controller.notice, isNull);
     });
+
+    // Раньше видео, брошенное на значок, пока открыт экран «Изменить
+    // ключ», молча вставало в очередь. С экрана ключа возвращались к
+    // прежнему видео, и оно не открывалось. Зато потом, при следующем
+    // вводе ключа на главном экране, давно брошенный ролик открывался сам
+    // и уходил в платное распознавание.
+    group('на экране смены ключа', () {
+      /// Главный экран, распознавание по сценарию и два ролика.
+      Future<(AppHarness, ScriptedStt, String, String)> twoVideos() async {
+        final h = await started();
+        final stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+        h.stt = stt;
+        return (
+          h,
+          stt,
+          h.copyVideo(probeClip, name: 'первое.mp4'),
+          h.copyVideo(speechClip, name: 'второе.mp4'),
+        );
+      }
+
+      /// Ключ меняют ещё раз, уже с главного экрана: брошенное когда-то
+      /// видео не должно открыться само и не должно быть оплачено.
+      Future<void> expectNothingOpensLater(
+          AppHarness h, ScriptedStt stt, String second) async {
+        final c = h.controller;
+        await c.goHome();
+        expect(c.stage, AppStage.home);
+        final paid = stt.calls.length;
+        c.changeKey();
+        expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0007'), isTrue);
+        // Открытие видео началось бы сразу (isBusy) — ждём, пока оно не
+        // закончилось бы.
+        for (var i = 0; i < 600 && c.isBusy; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(c.stage, AppStage.home);
+        expect(c.videoPath, isNull);
+        expect(stt.calls.length - paid, 0, reason: 'платные запросы');
+        expect(File('$second.subtitler.json').existsSync(), isFalse);
+      }
+
+      test('открытом с предпросмотра — сообщение, потом ничего само не '
+          'открывается', () async {
+        final (h, stt, first, second) = await twoVideos();
+        final c = h.controller;
+        await c.openVideo(first);
+        expect(c.stage, AppStage.review);
+
+        c.changeKey();
+        c.receiveFromAnotherLaunch(second);
+        expect(c.stage, AppStage.needsKey);
+        expect(c.notice?.title, busyTitle);
+        expect(c.notice?.hint, contains('второе.mp4'));
+
+        // Передумал менять ключ — назад к первому видео.
+        c.cancelKeyChange();
+        expect(c.stage, AppStage.review);
+        expect(c.videoPath, first);
+
+        await expectNothingOpensLater(h, stt, second);
+      });
+
+      test('ключ сменили и вернулись к предпросмотру — брошенное видео '
+          'потом само не открывается', () async {
+        final (h, stt, first, second) = await twoVideos();
+        final c = h.controller;
+        await c.openVideo(first);
+
+        c.changeKey();
+        c.receiveFromAnotherLaunch(second);
+        expect(c.notice?.title, busyTitle);
+        expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0006'), isTrue);
+        expect(c.stage, AppStage.review);
+        expect(c.videoPath, first);
+
+        await expectNothingOpensLater(h, stt, second);
+      });
+
+      test('открытом с главного экрана — сообщение о смене ключа', () async {
+        final (h, stt, _, second) = await twoVideos();
+        final c = h.controller;
+
+        c.changeKey();
+        c.receiveFromAnotherLaunch(second);
+        expect(c.stage, AppStage.needsKey);
+        // Текущего видео нет — и сообщение не про него.
+        expect(c.notice?.title, 'Сначала закончите со сменой ключа');
+        expect(c.notice?.hint, contains('второе.mp4'));
+
+        expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0008'), isTrue);
+        for (var i = 0; i < 600 && c.isBusy; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 50));
+        }
+        expect(c.stage, AppStage.home);
+        expect(c.videoPath, isNull);
+        expect(stt.calls, isEmpty, reason: 'платные запросы');
+      });
+
+      // Очередь бывает только до первого ввода ключа, и там с экрана ключа
+      // уходят на главный экран, где видео и открывается. Но если очередь
+      // всё же дожила до возврата к другому видео, она сбрасывается, а не
+      // ждёт следующего ввода ключа. Такое состояние собирается через
+      // debugEmulate: обычным путём до него сейчас не дойти.
+      Future<(AppHarness, ScriptedStt, String, String)> queuedThenReview()
+          async {
+        final (h, stt, first, second) = await twoVideos();
+        final c = h.controller;
+        c.debugEmulate(stage: AppStage.needsKey);
+        c.receiveFromAnotherLaunch(second); // первый ввод ключа: в очередь
+        expect(c.notice, isNull);
+        c.debugEmulate(stage: AppStage.home);
+        await c.openVideo(first);
+        expect(c.stage, AppStage.review);
+        c.changeKey();
+        return (h, stt, first, second);
+      }
+
+      test('«Отмена» с возвратом к предпросмотру сбрасывает очередь',
+          () async {
+        final (h, stt, first, second) = await queuedThenReview();
+        h.controller.cancelKeyChange();
+        expect(h.controller.videoPath, first);
+        await expectNothingOpensLater(h, stt, second);
+      });
+
+      test('новый ключ с возвратом к предпросмотру сбрасывает очередь',
+          () async {
+        final (h, stt, first, second) = await queuedThenReview();
+        expect(await h.controller.submitKey('AQVN-vydumannyj-novyj-klyuch-0009'),
+            isTrue);
+        expect(h.controller.videoPath, first);
+        await expectNothingOpensLater(h, stt, second);
+      });
+    });
   });
 
   group('Ключ', () {
