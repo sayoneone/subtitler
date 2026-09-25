@@ -73,6 +73,19 @@ void main() {
       expect(log.mask(inner), p.join('…', 'clip.mp4'));
     });
 
+    // Перетащить могут и саму папку дела вместо видео — у программы для
+    // этого есть отдельное сообщение. Раньше пряталась только папка над
+    // ней, и название дела оставалось в журнале.
+    test('перетащили папку — прячется и она сама', () {
+      final log = DebugLog();
+      final folder = Directory(p.join(tmp.path, 'Дела', 'Дело №7 (тест)'))
+        ..createSync(recursive: true);
+      log.hideFolderOf(folder.path);
+      log.warn('Видео не принято: Не видео: ${folder.path} (это папка)');
+      expect(log.asText(), isNot(contains('Дело №7')));
+      expect(log.asText(), contains('Не видео: … (это папка)'));
+    });
+
     test('корень диска не прячется — иначе исчезли бы все пути', () {
       final log = DebugLog();
       final root = p.rootPrefix(tmp.path);

@@ -106,8 +106,15 @@ class DebugLog {
   /// «…», а имя файла остаётся. В пути к видео бывают название дела и
   /// фамилии, разработчику они не нужны. Действует на записи, сделанные
   /// после вызова, — звать до первой записи с этим путём.
+  ///
+  /// Если [filePath] — сама папка (перетащили папку дела, а не видео),
+  /// прячется и она: её название — то же название дела.
   void hideFolderOf(String filePath) {
-    final folder = File(filePath).parent.path;
+    _hideFolder(File(filePath).parent.path);
+    if (FileSystemEntity.isDirectorySync(filePath)) _hideFolder(filePath);
+  }
+
+  void _hideFolder(String folder) {
     // Корень диска или «.»: прятать там нечего, а маска съела бы любые
     // пути журнала.
     if (Directory(folder).parent.path == folder) return;

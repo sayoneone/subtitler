@@ -516,6 +516,24 @@ void main() {
       expect(c.notice, isNull);
     });
 
+    test('Перетащили папку дела — сообщение, её названия нет в журнале',
+        () async {
+      final h = await started();
+      final c = h.controller;
+      final folder = Directory(p.join(h.root.path, 'Дела', 'Дело №7 (тест)'))
+        ..createSync(recursive: true);
+
+      await c.openVideo(folder.path);
+
+      expect(c.notice!.title, 'Это папка, а не видео');
+      for (final (where, text) in [
+        ('журнал', h.log.asText()),
+        ('«Технические детали»', c.notice!.details),
+      ]) {
+        expect(text, isNot(contains('Дело №7')), reason: where);
+      }
+    });
+
     test('Видео без звука — сообщение на главном экране', () async {
       final h = await started();
       await h.controller.openVideo(h.copyVideo(silentClip));
