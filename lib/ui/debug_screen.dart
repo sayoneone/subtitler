@@ -518,7 +518,7 @@ class _DebugScreenState extends State<DebugScreen>
         if (c.canRevealOutput)
           OutlinedButton(
             onPressed: c.busy ? null : c.revealOutput,
-            child: const Text('Показать в Finder'),
+            child: const Text('Показать в папке'),
           ),
       ]),
       if (c.burnedPath != null) ...[

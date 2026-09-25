@@ -6,7 +6,6 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
-import '../core/cloud/api_errors.dart';
 import '../core/cloud/speechkit_client.dart';
 import '../core/cloud/translate_client.dart';
 import '../core/ffmpeg/ffmpeg_locator.dart';
@@ -21,18 +20,31 @@ import '../core/pipeline/language_detector.dart';
 import '../core/pipeline/pipeline.dart';
 import '../core/session_store.dart';
 import '../core/srt.dart';
+import 'key_check.dart';
 import 'key_store.dart';
+import 'reveal.dart';
 import 'runtime.dart';
+import 'services.dart';
 
-enum CheckState { unknown, checking, ok, failed }
+export 'key_check.dart' show CheckState;
 
 /// Состояние отладочного стенда. Одна модель на весь экран — этого хватает,
 /// а лишние слои только мешают отлаживать.
 class DebugController extends ChangeNotifier {
-
-  final DebugLog log = DebugLog.instance;
+  final DebugLog log;
 
   KeyStore? _keyStore;
+
+  /// Стенд, открытый из приложения, получает уже готовые папки, ffmpeg и
+  /// хранилище ключа. Повторный AppRuntime.prepare переоткрыл бы журнал
+  /// с нуля (и отложил бы журнал запуска как «прошлый») и заново
+  /// распаковал шрифт.
+  DebugController({
+    this.runtime,
+    this.ffmpeg,
+    this._keyStore,
+    DebugLog? log,
+  }) : log = log ?? DebugLog.instance;
 
   /// Удалось ли вообще пользоваться хранилищем ключа.
   bool? storageWorks;
@@ -91,19 +103,28 @@ class DebugController extends ChangeNotifier {
 
   bool get canBurn =>
       !busy &&
+      runtime != null && // шрифт для libass лежит в папке приложения
       session != null &&
       session!.cues.any((c) => c.ru.trim().isNotEmpty) &&
       (ffmpeg?.hasLibass ?? false);
 
   Future<void> init() async {
-    log.info('Запуск приложения');
-    try {
-      runtime = await AppRuntime.prepare(log: log);
-    } catch (e) {
-      log.error('Не удалось подготовить папки приложения: $e');
+    log.info(runtime == null
+        ? 'Запуск приложения (отладочный стенд)'
+        : 'Открыт отладочный стенд');
+    if (runtime == null) {
+      try {
+        runtime = await AppRuntime.prepare(log: log);
+      } catch (e) {
+        log.error('Не удалось подготовить папки приложения: $e');
+      }
     }
-    await detectFfmpeg();
-    _keyStore = createKeyStore(
+    if (ffmpeg == null || isMobile) {
+      await detectFfmpeg();
+    } else {
+      notifyListeners();
+    }
+    _keyStore ??= createKeyStore(
       supportDir: runtime?.supportDir ?? Directory.systemTemp.path,
       log: log,
     );
@@ -139,13 +160,7 @@ class DebugController extends ChangeNotifier {
     }
   }
 
-  /// Общие настройки сети. Без явных таймаутов зависший запрос подвесил бы
-  /// весь прогон, и отменить его было бы нечем.
-  static Dio newDio() => Dio(BaseOptions(
-        connectTimeout: const Duration(seconds: 15),
-        sendTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60),
-      ));
+  static Dio newDio() => AppServices.newDio();
 
   Future<void> detectFfmpeg() async {
     if (isMobile) {
@@ -261,68 +276,37 @@ class DebugController extends ChangeNotifier {
     await run();
   }
 
+  /// Проверяет ключ и только потом берёт его: неверный ключ не должен
+  /// оставаться в памяти и открывать кнопку «Обработать».
   Future<void> saveKey(String value) async {
-    apiKey = value.trim();
     keyError = null;
     sttCheck = CheckState.checking;
     translateCheck = CheckState.checking;
     notifyListeners();
 
-    if (apiKey.isEmpty) {
-      keyError = 'Ключ пустой';
-      sttCheck = translateCheck = CheckState.failed;
-      notifyListeners();
-      return;
-    }
-    log.redact(apiKey);
-    log.info('Проверка ключа (${apiKey.length} символов)');
-
+    final key = value.trim();
     final dio = newDio();
-    // 1) Перевод — самая дешёвая проверка.
-    try {
-      final result = await TranslateClient(dio: dio, apiKey: apiKey)
-          .translate(texts: const ['merhaba'], sourceLang: 'tr-TR');
-      translateCheck = CheckState.ok;
-      log.info('Перевод работает: merhaba → ${result.firstOrNull ?? ''}');
-    } on ApiException catch (e) {
-      translateCheck = CheckState.failed;
-      keyError = e.message;
-      log.error('Перевод недоступен: $e');
-    } catch (e) {
-      translateCheck = CheckState.failed;
-      keyError = '$e';
-      log.error('Перевод недоступен: $e');
-    }
-    notifyListeners();
-
-    // 2) Распознавание — нужен хоть какой-то звук, генерируем тишину.
-    try {
-      final ogg = await _tinyOgg();
-      if (ogg == null) {
-        sttCheck = CheckState.failed;
-        keyError ??= 'Не удалось подготовить пробный звук (нет ffmpeg?)';
-      } else {
-        await SpeechKitClient(dio: dio, apiKey: apiKey)
-            .recognize(oggBytes: ogg, lang: lang);
-        sttCheck = CheckState.ok;
-        log.info('Распознавание отвечает');
-      }
-    } on ApiException catch (e) {
-      sttCheck = CheckState.failed;
-      keyError = e.message;
-      log.error('Распознавание недоступно: $e');
-    } catch (e) {
-      sttCheck = CheckState.failed;
-      keyError = '$e';
-      log.error('Распознавание недоступно: $e');
-    }
+    final result = await KeyChecker(
+      translate: (k) => TranslateClient(dio: dio, apiKey: k),
+      speechKit: (k) => SpeechKitClient(dio: dio, apiKey: k),
+      log: log,
+      sttLang: lang,
+    ).check(key, onProgress: (r) {
+      translateCheck = r.translate;
+      sttCheck = r.stt;
+      notifyListeners();
+    });
+    translateCheck = result.translate;
+    sttCheck = result.stt;
+    keyError = result.error?.toString();
 
     // Показать результат проверки НАДО до записи в хранилище: обращение к
     // Связке ключей macOS может ждать разрешения пользователя сколько угодно,
     // и индикатор всё это время висел бы в состоянии «проверяется».
     notifyListeners();
 
-    if (sttCheck == CheckState.ok && translateCheck == CheckState.ok) {
+    if (result.ok) {
+      apiKey = key;
       try {
         await _keyStore!.write(apiKey);
         log.info('Ключ сохранён: $storageDescription');
@@ -332,21 +316,6 @@ class DebugController extends ChangeNotifier {
       }
       notifyListeners();
     }
-  }
-
-  /// Полсекунды тишины в OggOpus — нужен только чтобы проверить, что
-  /// распознавание принимает наш ключ.
-  Future<List<int>?> _tinyOgg() async {
-    final dir = runtime?.supportDir;
-    if (dir == null) return null;
-    final path = p.join(dir, 'probe.ogg');
-    final result = await _runner().run([
-      '-y', '-hide_banner', '-loglevel', 'error',
-      '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=0.5',
-      '-c:a', 'libopus', '-b:a', '64k', path,
-    ]);
-    if (!result.ok) return null;
-    return File(path).readAsBytesSync();
   }
 
   Future<void> run() async {
@@ -599,12 +568,13 @@ class DebugController extends ChangeNotifier {
     }
   }
 
-  bool get canRevealOutput => Platform.isMacOS;
+  /// Показать файл в Проводнике (Finder) — теперь и на Windows.
+  bool get canRevealOutput => !isMobile;
 
   Future<void> revealOutput() async {
     final target = burnedPath ?? videoPath;
     if (target == null || !canRevealOutput) return;
-    await Process.run('open', ['-R', target]);
+    await revealInFileManager(target, log: log);
   }
 
   Future<void> saveLog() async {
@@ -612,7 +582,7 @@ class DebugController extends ChangeNotifier {
     final file = File(p.join(dir, 'subtitler-debug.log'));
     file.writeAsStringSync(log.asText());
     log.info('Журнал сохранён: ${file.path}');
-    if (canRevealOutput) await Process.run('open', ['-R', file.path]);
+    if (canRevealOutput) await revealInFileManager(file.path, log: log);
     notifyListeners();
   }
 }
