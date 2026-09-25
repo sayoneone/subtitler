@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -342,6 +343,38 @@ void main() {
       return (build(stt, FakeTranslate(), workDir: workDir), stt);
     }
 
+    test('Сохранённая сессия не перезаписывается и не оплачивается повторно',
+        () async {
+      final copy = freshCopy(video);
+      final done = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate())
+          .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+
+      // Следователь поправил перевод первой реплики.
+      final store = SessionStore(fallbackDir: tmp.path);
+      final edited = done.copyWith(cues: [
+        done.cues.first.copyWith(ru: 'правка следователя'),
+        ...done.cues.skip(1),
+      ]);
+      final path = await store.save(edited);
+
+      // Тот же файл перетащили снова.
+      final (pipeline, stt) = scripted({
+        'tr-TR': {1: 'yarın sabah erkenden çarşıya gideceğiz'},
+        'uz-UZ': {1: 'ertaga ertalab bozorga boramiz'},
+      });
+      await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+
+      final onDisk = Session.fromJson(
+          jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>);
+      expect(onDisk.cues.first.ru, 'правка следователя',
+          reason: 'ручные правки не должны пропадать');
+      expect(stt.calls, isEmpty, reason: 'за готовую сессию платить нельзя');
+    });
+
     test('Реплика с ошибкой API не сдвигает сравнение', () async {
       // Речь узбекская. Узбекская модель на самой длинной реплике 1
       // упала с ошибкой сервиса, турецкая написала там кальку своими
@@ -368,6 +401,178 @@ void main() {
       expect(probe.session.lang, 'uz-UZ');
       expect(stt.callsFor('uz-UZ').where((c) => c.$2 == 1), isNotEmpty,
           reason: 'реплика 1 действительно пробовалась');
+      expect(probe.verdict!.comparedCues, isNot(contains(1)));
+      // Турецкая проба реплики 1 оплачена — она сохранена, хоть и не
+      // сравнивалась; у узбекской модели реплики 1 нет, и она остаётся
+      // нераспознанной — её распознает основная обработка.
+      expect(probe.session.probeTexts['tr-TR'], contains(1));
+      expect(probe.session.probeTexts['uz-UZ'], isNot(contains(1)));
+      expect(probe.session.cues.firstWhere((c) => c.index == 1).status,
+          CueStatus.pending);
+    });
+
+    /// Турецкая речь на репликах 1 и 3 (самые длинные), узбекская модель
+    /// пишет кальку. 18 слов у лидера — хватает для уверенности.
+    const turkishSpeech = {
+      'tr-TR': {
+        1: 'yarın sabah erkenden çarşıya gideceğiz çünkü evde ekmek yok',
+        2: 'tamam',
+        3: 'akşam eve geç geleceğim sen beni bekleme tamam mı',
+      },
+      'uz-UZ': {
+        1: 'yarin sabah erkandan charshiga gidajakmiz chunki evda ekmak yoq',
+        2: 'tamom',
+        3: 'aqsham eve gech gelajagim sen beni beklama tamom mi',
+      },
+    };
+
+    test('Уверенный выбор обходится первыми пробами', () async {
+      final copy = freshCopy(probeVideo);
+      final (pipeline, stt) = scripted(turkishSpeech);
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+
+      expect(probe.verdict!.lang, 'tr-TR');
+      expect(probe.verdict!.confidence, LanguageConfidence.high);
+      expect(stt.calls.map((c) => c.$2).toSet(), {1, 3},
+          reason: 'две самые длинные реплики из разных частей ролика');
+      expect(stt.calls, hasLength(4), reason: 'второй этап не нужен');
+
+      final session = probe.session;
+      expect(session.lang, 'tr-TR');
+      expect(session.langConfidence, LanguageConfidence.high);
+      expect(session.langRunnerUp, 'uz-UZ');
+      expect(session.cues.firstWhere((c) => c.index == 1).orig,
+          startsWith('yarın sabah'));
+      expect(session.cues.firstWhere((c) => c.index == 2).status,
+          CueStatus.pending);
+    });
+
+    test('Пробы всех языков сохраняются в сессию на диске', () async {
+      final copy = freshCopy(probeVideo);
+      final (pipeline, _) = scripted(turkishSpeech);
+      await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+
+      final onDisk = Session.fromJson(
+          jsonDecode(File('$copy.subtitler.json').readAsStringSync())
+              as Map<String, dynamic>);
+      expect(onDisk.probeTexts['uz-UZ'], {
+        1: turkishSpeech['uz-UZ']![1],
+        3: turkishSpeech['uz-UZ']![3],
+      }, reason: 'пробы проигравшего языка оплачены — выбрасывать нельзя');
+      expect(onDisk.probeTexts['tr-TR'], hasLength(2));
+      expect(onDisk.langConfidence, LanguageConfidence.high);
+    });
+
+    test('Обработка после определения не платит за пробы победителя',
+        () async {
+      final copy = freshCopy(probeVideo);
+      final (pipeline, stt) = scripted(turkishSpeech);
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+      stt.calls.clear();
+
+      final session = await pipeline.process(
+        videoPath: copy,
+        lang: probe.session.lang,
+        resumeFrom: probe.session,
+        sleep: (_) async {},
+      );
+      expect(stt.calls, [('tr-TR', 2)]);
+      expect(session.cues.every((c) => c.status == CueStatus.ok), isTrue);
+    });
+
+    test('Мало уверенности — ещё реплики, и только двумя лидерами', () async {
+      final copy = freshCopy(probeVideo);
+      // Короткие реплики: слов мало, уверенного выбора после первого этапа
+      // нет. Русская модель на турецкой речи не услышала ничего.
+      final (pipeline, stt) = scripted({
+        'tr-TR': {
+          1: 'tam on iki saat var',
+          2: 'yarın sabah erkenden çarşıya gideceğiz',
+          3: 'akşam vardiyası başladı',
+        },
+        'uz-UZ': {
+          1: 'tam onikki soat bor',
+          2: 'yarin sabah erkandan charshiga gidajakmiz',
+          3: 'aqsham vardiyasi boshladi',
+        },
+        'ru-RU': {1: '', 2: '', 3: ''},
+      });
+      final stages = <PipelineStage>[];
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ', 'ru-RU'],
+        sleep: (_) async {},
+        onProgress: (p) => stages.add(p.stage),
+      );
+
+      expect(probe.verdict!.lang, 'tr-TR');
+      expect(stt.callsFor('ru-RU').map((c) => c.$2).toSet(), {1, 3},
+          reason: 'отставший язык во втором этапе не участвует');
+      expect(stt.callsFor('tr-TR').map((c) => c.$2).toSet(), {1, 2, 3});
+      expect(stt.callsFor('uz-UZ').map((c) => c.$2).toSet(), {1, 2, 3});
+      expect(probe.session.probeTexts.keys,
+          containsAll(['tr-TR', 'uz-UZ', 'ru-RU']));
+
+      expect(stages, contains(PipelineStage.detectingLanguage));
+      expect(stages, isNot(contains(PipelineStage.recognizing)));
+      expect(stages.last, isNot(PipelineStage.done),
+          reason: 'после определения языка обработка только начинается');
+    });
+
+    test('Все модели молчат — язык прошлой обработки, без вопросов',
+        () async {
+      final copy = freshCopy(probeVideo);
+      final (pipeline, stt) = scripted({
+        'tr-TR': {1: '', 2: '', 3: ''},
+        'uz-UZ': {1: '', 2: '', 3: ''},
+      });
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        previousLang: 'uz-UZ',
+        sleep: (_) async {},
+      );
+
+      expect(probe.session.lang, 'uz-UZ');
+      expect(probe.session.langConfidence, LanguageConfidence.none);
+      expect(probe.session.langRunnerUp, 'tr-TR');
+      // Самые длинные куски в шумном ролике часто оказываются техникой:
+      // перед тем как сдаться, пробуем ещё одну часть записи.
+      expect(stt.calls.map((c) => c.$2).toSet(), {1, 2, 3});
+    });
+
+    test('Отмена во время определения языка останавливает пробы', () async {
+      final copy = freshCopy(probeVideo);
+      final (pipeline, stt) = scripted({
+        'tr-TR': {1: 'yarın sabah erkenden çarşıya gideceğiz'},
+        'uz-UZ': {1: 'ertaga ertalab bozorga boramiz'},
+      });
+      await expectLater(
+        pipeline.detectLanguage(
+          videoPath: copy,
+          candidates: const ['tr-TR', 'uz-UZ'],
+          sleep: (_) async {},
+          // Человек нажал «Отмена», пока шла первая проба.
+          isCancelled: () => stt.calls.isNotEmpty,
+        ),
+        throwsA(isA<PipelineCancelledException>()),
+      );
+      expect(stt.calls, hasLength(1),
+          reason: 'после отмены платные запросы не отправляются');
+      expect(File('$copy.subtitler.json').existsSync(), isFalse,
+          reason: 'язык не определён — сессию с догадкой не записываем');
     });
   });
 
@@ -423,6 +628,124 @@ void main() {
     expect(stt.calls, 1, reason: 'распознана только недостающая реплика');
     expect(resumed.cues.first.status, CueStatus.ok);
     expect(File('$workDir/audio.wav').existsSync(), isFalse);
+  });
+
+  group('Смена языка', () {
+    test('Пробы нового языка переиспользуются, прежний вариант — в копию',
+        () async {
+      final copy = freshCopy(probeVideo);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = ScriptedStt(workDir, {
+        'tr-TR': {
+          1: 'yarın sabah erkenden çarşıya gideceğiz çünkü evde ekmek yok',
+          2: 'tamam',
+          3: 'akşam eve geç geleceğim sen beni bekleme tamam mı',
+        },
+        'uz-UZ': {
+          1: 'yarin sabah erkandan charshiga gidajakmiz chunki evda ekmak yoq',
+          2: 'tamom',
+          3: 'aqsham eve gech gelajagim sen beni beklama tamom mi',
+        },
+      });
+      final pipeline = build(stt, FakeTranslate(), workDir: workDir);
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+      final turkish = await pipeline.process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: probe.session,
+        sleep: (_) async {},
+      );
+      // Следователь поправил перевод и решил, что язык всё-таки узбекский.
+      final edited = turkish.copyWith(cues: [
+        turkish.cues.first.copyWith(ru: 'правка следователя'),
+        ...turkish.cues.skip(1),
+      ]);
+      stt.calls.clear();
+
+      final uzbek = await pipeline.process(
+        videoPath: copy,
+        lang: 'uz-UZ',
+        resumeFrom: edited,
+        sleep: (_) async {},
+      );
+
+      expect(stt.calls, [('uz-UZ', 2)],
+          reason: 'реплики 1 и 3 на узбекском уже оплачены пробами');
+      expect(uzbek.lang, 'uz-UZ');
+      expect(uzbek.cues.first.orig, startsWith('yarin sabah'));
+      expect(uzbek.cues.every((c) => c.status == CueStatus.ok), isTrue);
+      expect(uzbek.langConfidence, isNull, reason: 'язык выбрал человек');
+      expect(uzbek.langRunnerUp, 'tr-TR');
+      expect(uzbek.probeTexts.keys, containsAll(['tr-TR', 'uz-UZ']));
+
+      final store = SessionStore(fallbackDir: tmp.path);
+      final backup = await store.loadBackup(copy, 'tr-TR', uzbek.fingerprint);
+      expect(backup!.cues.first.ru, 'правка следователя',
+          reason: 'турецкий вариант с правками можно вернуть бесплатно');
+      expect((await store.load(copy, uzbek.fingerprint))!.lang, 'uz-UZ');
+
+      // Передумал ещё раз: обратно на турецкий — без единого запроса.
+      stt.calls.clear();
+      final back = await pipeline.process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: uzbek,
+        sleep: (_) async {},
+      );
+      expect(stt.calls, isEmpty);
+      expect(back.lang, 'tr-TR');
+      expect(back.cues.first.ru, 'правка следователя');
+      expect(back.langRunnerUp, 'uz-UZ');
+      expect(await store.backupLanguages(copy, back.fingerprint),
+          {'tr-TR', 'uz-UZ'});
+    });
+
+    test('Пропажа сегментов не стирает пробы и уверенность', () async {
+      final copy = freshCopy(probeVideo);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = ScriptedStt(workDir, {
+        'tr-TR': {1: 'yarın sabah erkenden çarşıya gideceğiz', 2: 'tamam'},
+        'uz-UZ': {1: 'yarin sabah erkandan charshiga gidajakmiz'},
+      });
+      final probe = await build(stt, FakeTranslate(), workDir: workDir)
+          .detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+      Directory(workDir).deleteSync(recursive: true);
+
+      final session = await build(stt, FakeTranslate(), workDir: workDir)
+          .process(
+        videoPath: copy,
+        lang: probe.session.lang,
+        resumeFrom: probe.session,
+        sleep: (_) async {},
+      );
+      expect(session.probeTexts, probe.session.probeTexts);
+      expect(session.langConfidence, probe.session.langConfidence);
+      expect(session.langRunnerUp, probe.session.langRunnerUp);
+    });
+
+    test('Сессия другого файла для продолжения не используется', () async {
+      final foreign = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate())
+          .process(videoPath: freshCopy(video), lang: 'tr-TR',
+              sleep: (_) async {});
+      final copy = freshCopy(probeVideo);
+      final stt = FakeStt(['bir', 'iki', 'üç']);
+      final session = await build(stt, FakeTranslate()).process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: foreign,
+        sleep: (_) async {},
+      );
+      expect(stt.calls, greaterThan(0), reason: 'чужие реплики не подставлены');
+      expect(session.videoPath, copy);
+    });
   });
 
   test('Отмена во время подготовки звука не доходит до нарезки и распознавания',

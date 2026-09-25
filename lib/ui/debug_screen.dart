@@ -482,6 +482,7 @@ class _DebugScreenState extends State<DebugScreen>
     final name = switch (p.stage) {
       PipelineStage.extractingAudio => 'Извлекаем звук…',
       PipelineStage.detectingSilence => 'Ищем паузы в речи…',
+      PipelineStage.detectingLanguage => 'Определяем язык',
       PipelineStage.recognizing => 'Распознаём',
       PipelineStage.translating => 'Переводим',
       PipelineStage.done => 'Готово',

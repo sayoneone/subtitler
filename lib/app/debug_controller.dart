@@ -241,14 +241,12 @@ class DebugController extends ChangeNotifier {
 
       // Отладочный стенд по-прежнему спрашивает человека при неуверенном
       // выборе — так видно, что именно услышала каждая модель.
-      final verdict = languageVerdict;
-      if (verdict == null || verdict.confidence != LanguageConfidence.high) {
+      if (!languageConfirmed) {
         awaitingLanguageChoice = true;
         log.info('Ждём, что язык выберет человек');
         notifyListeners();
         return;
       }
-      languageConfirmed = true;
     }
     await run();
   }
@@ -391,7 +389,9 @@ class DebugController extends ChangeNotifier {
       session = await pipeline.process(
         videoPath: video,
         lang: lang,
-        resumeFrom: previous?.lang == lang ? previous : null,
+        // Сессия на другом языке тоже передаётся: ядро отложит её в
+        // резервную копию и переиспользует оплаченные пробы нового языка.
+        resumeFrom: previous,
         onProgress: (p) {
           progress = p;
           notifyListeners();
@@ -421,6 +421,7 @@ class DebugController extends ChangeNotifier {
   Future<void> detectLanguage() async {
     if (busy || videoPath == null || apiKey.isEmpty || ffmpeg == null) return;
     busy = true;
+    _cancelRequested = false;
     lastError = null;
     languageVerdict = null;
     notifyListeners();
@@ -445,13 +446,20 @@ class DebugController extends ChangeNotifier {
           progress = p;
           notifyListeners();
         },
+        isCancelled: () => _cancelRequested,
       );
       languageVerdict = probe.verdict;
       session = probe.session;
-      if (probe.verdict.confidence == LanguageConfidence.high) {
-        lang = probe.verdict.lang;
+      final verdict = probe.verdict;
+      // verdict == null — для видео уже есть сохранённая сессия: язык в ней
+      // и так известен, спрашивать нечего.
+      if (verdict == null || verdict.confidence == LanguageConfidence.high) {
+        lang = probe.session.lang;
         languageConfirmed = true;
       }
+    } on PipelineCancelledException {
+      lastError = 'Отменено';
+      log.warn('Определение языка отменено');
     } catch (e) {
       lastError = '$e';
       log.error('Определение языка не удалось: $e');

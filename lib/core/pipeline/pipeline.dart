@@ -12,6 +12,7 @@ import '../models.dart';
 import '../session_store.dart';
 import 'errors.dart';
 import 'language_detector.dart';
+import 'probe_cues.dart';
 import 'segment_cutter.dart';
 import 'silence_scanner.dart';
 import 'validation.dart';
@@ -21,6 +22,10 @@ export 'errors.dart';
 enum PipelineStage {
   extractingAudio,
   detectingSilence,
+
+  /// Пробы на нескольких языках. `done`/`total` — пробные запросы;
+  /// `total` может вырасти, если после первых проб уверенности мало.
+  detectingLanguage,
   recognizing,
   translating,
   done,
@@ -33,13 +38,20 @@ class PipelineProgress {
   const PipelineProgress(this.stage, {this.done = 0, this.total = 0});
 }
 
-/// Результат проверки языка: что показали обе модели и готовая сессия,
-/// в которой пробные распознавания уже сохранены — платить за них
-/// повторно не придётся.
+/// Итог определения языка.
 class LanguageProbe {
-  final LanguageVerdict verdict;
+  /// С чего продолжать обработку. Либо новая сессия — с выбранным языком,
+  /// пробами ВСЕХ языков и уже распознанными репликами выбранного, — либо
+  /// сессия, сохранённая для этого видео раньше.
   final Session session;
-  const LanguageProbe({required this.verdict, required this.session});
+
+  /// Как выбран язык. `null` — для видео уже была сохранённая сессия: она
+  /// возвращена как есть, ничего не распознавалось и не записывалось.
+  final LanguageVerdict? verdict;
+
+  const LanguageProbe({required this.session, this.verdict});
+
+  bool get reusedSession => verdict == null;
 }
 
 /// Собирает весь путь от видеофайла до готовых реплик с переводом.
@@ -62,6 +74,21 @@ class Pipeline {
     DebugLog? log,
   }) : log = log ?? DebugLog.instance;
 
+  /// Распознаёт и переводит весь ролик на языке [lang].
+  ///
+  /// [resumeFrom] — сессия, с которой продолжать (из [detectLanguage] или
+  /// с диска): уже распознанные реплики повторно не оплачиваются. Сессия
+  /// другого файла (не совпал отпечаток) не используется.
+  ///
+  /// Если язык [resumeFrom] не [lang] — это смена языка. Прежняя сессия
+  /// уходит в резервную копию (`SessionStore.saveBackup`) вместе с ручными
+  /// правками. Если на [lang] ролик уже распознавался, его копия
+  /// восстанавливается бесплатно (`SessionStore.swapWithBackup`); иначе
+  /// ролик распознаётся заново на [lang] — кроме реплик, для которых на
+  /// этом языке уже есть пробы ([Session.probeTexts]): за них заплачено.
+  /// Язык после смены выбран человеком: уверенность `null`, второй язык —
+  /// прежний.
+  ///
   /// Отмена ([isCancelled]) во время распознавания или перевода возвращает
   /// то, что успели; во время подготовки звука, когда показывать ещё
   /// нечего, — [PipelineCancelledException]. Видео без звука —
@@ -88,10 +115,32 @@ class Pipeline {
     );
 
     var session = resumeFrom;
-    if (session != null && session.lang == lang) {
+    if (session != null && !session.fingerprint.matches(fingerprint)) {
+      log.warn('Сессия относится к другому файлу (не совпал отпечаток) — '
+          'начинаем заново');
+      session = null;
+    }
+    if (session != null && session.lang != lang) {
+      final restored = await store.swapWithBackup(session, lang);
+      if (restored != null) {
+        log.info('Смена языка: ${session.lang} → $lang. На $lang ролик уже '
+            'распознавался — берём резервную копию, прежний вариант '
+            'откладываем в свою');
+        session = restored;
+      } else {
+        final backup = await store.saveBackup(session);
+        log.info('Смена языка: ${session.lang} → $lang. '
+            'Прежний вариант сохранён: $backup');
+        session = _switchLanguage(session, lang);
+        final reused =
+            session.cues.where((c) => c.status != CueStatus.pending).length;
+        log.info('Готовые пробы на $lang: $reused реплик — повторно не платим');
+      }
+    } else if (session != null) {
       log.info('Продолжаем прежнюю сессию');
     }
-    if (session == null || session.lang != lang) {
+
+    if (session == null) {
       session = await _prepare(
         videoPath: videoPath,
         lang: lang,
@@ -138,17 +187,49 @@ class Pipeline {
     return session;
   }
 
-  /// Прогоняет несколько самых длинных реплик через модели всех языков
-  /// из [candidates] и выбирает язык по словам (см. `judgeLanguage`).
-  /// Распознанное выигравшей моделью уходит в сессию.
+  /// Определяет язык ролика пробами и возвращает сессию, с которой
+  /// продолжать ([process] с `resumeFrom: probe.session`). Человека ни о
+  /// чём не спрашивает: язык выбирается всегда, а уверенность выбора
+  /// сохраняется в сессии.
+  ///
+  /// Если для видео уже есть сохранённая сессия (совпал отпечаток), она
+  /// возвращается как есть: без проб, без оплаты и без перезаписи — в ней
+  /// могут быть ручные правки.
+  ///
+  /// Пробы идут в два этапа:
+  /// 1. [probeSegments] самых длинных реплик из разных частей ролика
+  ///    распознаются моделями всех [candidates];
+  /// 2. если уверенность не высокая — ещё [extraProbeSegments] реплик,
+  ///    и только двумя лидерами.
+  /// Сравниваются только реплики, распознанные всеми сравниваемыми
+  /// моделями. Тексты проб всех языков сохраняются в сессию
+  /// ([Session.probeTexts]): при смене языка за них не платим повторно.
+  ///
+  /// [previousLang] — язык прошлой обработки: его берём, если все модели
+  /// промолчали. Отмена ([isCancelled]) до конца проб бросает
+  /// [PipelineCancelledException] и ничего не записывает: сессия с
+  /// неопределённым языком хуже, чем несколько копеек за пробы.
+  /// Этап [PipelineStage.done] здесь не сообщается — обработка после
+  /// определения языка только начинается.
   Future<LanguageProbe> detectLanguage({
     required String videoPath,
     List<String> candidates = kDefaultDetectionCandidates,
+    String? previousLang,
     int probeSegments = 2,
+    int extraProbeSegments = 2,
     void Function(PipelineProgress)? onProgress,
     Future<void> Function(Duration)? sleep,
+    bool Function()? isCancelled,
   }) async {
+    final cancelled = isCancelled ?? () => false;
     final report = onProgress ?? (_) {};
+    final langs = <String>[];
+    for (final lang in candidates) {
+      if (!langs.contains(lang)) langs.add(lang);
+    }
+    if (langs.isEmpty) {
+      throw ArgumentError('Не выбрано ни одного языка для определения');
+    }
     Directory(workDir).createSync(recursive: true);
 
     final duration = await runner.probeDuration(videoPath);
@@ -157,77 +238,149 @@ class Pipeline {
       durationSec: duration,
     );
 
-    if (candidates.isEmpty) {
-      throw ArgumentError('Не выбрано ни одного языка для определения');
+    final saved = await store.load(videoPath, fingerprint);
+    if (saved != null) {
+      log.info('Для видео уже есть сохранённая сессия (язык ${saved.lang}) — '
+          'открываем её без проб');
+      return LanguageProbe(session: saved);
     }
 
     final base = await _prepare(
       videoPath: videoPath,
-      lang: candidates.first,
+      lang: langs.first,
       duration: duration,
       fingerprint: fingerprint,
       report: report,
-      cancelled: () => false,
+      cancelled: cancelled,
     );
 
-    // Берём самые длинные реплики: на них у моделей больше шансов
-    // проявить различия.
-    final byLength = [...base.cues]
-      ..sort((a, b) => b.range.duration.compareTo(a.range.duration));
-    final probes = byLength.take(probeSegments).toList();
-    log.info('Определение языка по ${probes.length} репликам '
-        '(${probes.map((c) => c.index).join(', ')}); '
-        'кандидаты: ${candidates.map(languageName).join(', ')}');
-
-    // Результаты по номерам реплик: сравнивать можно только реплики,
-    // которые распознали все модели. Склейка «всё, что вышло» сдвигала
-    // сравнение: реплика с ошибкой сервиса выпадала у одной модели и
-    // оставалась у другой.
     final recognized = <String, Map<int, String>>{};
     var done = 0;
+    var total = 0;
 
-    for (final lang in candidates) {
-      for (final cue in probes) {
-        report(PipelineProgress(PipelineStage.recognizing,
-            done: done, total: probes.length * candidates.length));
+    Future<void> probe(List<Cue> cues, List<String> models) async {
+      total += cues.length * models.length;
+      for (final cue in cues) {
         final bytes = File(_segmentPath(cue.index)).readAsBytesSync();
-        try {
-          final text = await withRetry(
-            () => stt.recognize(oggBytes: bytes, lang: lang),
-            sleep: sleep,
-          );
-          (recognized[lang] ??= {})[cue.index] = text;
-          log.info('[$lang] реплика ${cue.index}: '
-              '${text.isEmpty ? '(пусто)' : text}');
-        } on AuthException {
-          rethrow;
-        } on ApiException catch (e) {
-          log.warn('[$lang] реплика ${cue.index}: ошибка ($e)');
+        for (final lang in models) {
+          throwIfCancelled(cancelled);
+          report(PipelineProgress(PipelineStage.detectingLanguage,
+              done: done, total: total));
+          try {
+            final text = await withRetry(
+              () => stt.recognize(oggBytes: bytes, lang: lang),
+              sleep: sleep,
+            );
+            (recognized[lang] ??= {})[cue.index] = text;
+            log.info('[$lang] реплика ${cue.index}: '
+                '${text.isEmpty ? '(пусто)' : text}');
+          } on AuthException {
+            rethrow;
+          } on ApiException catch (e) {
+            // Реплика без ответа одной из моделей просто не сравнивается.
+            log.warn('[$lang] реплика ${cue.index}: ошибка ($e)');
+          }
+          done++;
         }
-        done++;
       }
+      report(PipelineProgress(PipelineStage.detectingLanguage,
+          done: done, total: total));
     }
 
-    final verdict = judgeLanguage(recognized, candidates: candidates);
-    log.info('Язык: ${verdict.describe()}');
+    final first = pickProbeCues(base.cues, count: probeSegments);
+    log.info('Определение языка: реплики '
+        '${first.map((c) => c.index).join(', ')}; '
+        'языки: ${langs.map(languageName).join(', ')}');
+    await probe(first, langs);
+    var verdict = judgeLanguage(recognized,
+        candidates: langs, previousLang: previousLang);
+    log.info('Язык по первым пробам: ${verdict.describe()}');
 
-    // Сохраняем то, что уже распознали выигравшей моделью.
-    final winner = verdict.lang;
-    final byIndex = recognized[winner] ?? const <int, String>{};
+    if (verdict.confidence != LanguageConfidence.high &&
+        langs.length > 1 &&
+        extraProbeSegments > 0) {
+      final leaders = verdict.candidates
+          .map((c) => c.lang)
+          .where(langs.contains)
+          .take(2)
+          .toList();
+      final extra =
+          pickProbeCues(base.cues, count: extraProbeSegments, taken: first);
+      if (extra.isNotEmpty) {
+        log.info('Уверенности мало — ещё реплики '
+            '${extra.map((c) => c.index).join(', ')}, '
+            'языки: ${leaders.map(languageName).join(', ')}');
+        await probe(extra, leaders);
+        final second = judgeLanguage(
+          {for (final lang in leaders) lang: recognized[lang] ?? const {}},
+          candidates: leaders,
+          previousLang: previousLang,
+        );
+        // Остальные языки отстали уже на первом этапе — оставляем их
+        // оценки для журнала, но решают лидеры.
+        verdict = LanguageVerdict(
+          lang: second.lang,
+          confidence: second.confidence,
+          runnerUp: second.runnerUp,
+          candidates: [
+            ...second.candidates,
+            ...verdict.candidates.where((c) => !leaders.contains(c.lang)),
+          ],
+          comparedCues: second.comparedCues,
+          mixed: second.mixed,
+        );
+        log.info('Язык по всем пробам: ${verdict.describe()}');
+      }
+    }
+    // Отмену могли нажать, пока шла последняя проба.
+    throwIfCancelled(cancelled);
+
+    // Уже распознанное выигравшей моделью не распознаётся повторно.
+    final winnerTexts = recognized[verdict.lang] ?? const <int, String>{};
     final session = base.copyWith(
-      lang: winner,
-      cues: base.cues.map((cue) {
-        final text = byIndex[cue.index];
+      lang: verdict.lang,
+      langConfidence: verdict.confidence,
+      langRunnerUp: verdict.runnerUp,
+      probeTexts: recognized,
+      cues: _withTexts(base.cues, winnerTexts),
+    );
+    // Сохранённой сессии для этого видео нет (проверено выше) — затирать
+    // нечего.
+    await store.save(session);
+    return LanguageProbe(session: session, verdict: verdict);
+  }
+
+  /// Реплики с распознанными текстами из [texts] (номер → текст).
+  static List<Cue> _withTexts(List<Cue> cues, Map<int, String> texts) =>
+      cues.map((cue) {
+        final text = texts[cue.index];
         if (text == null) return cue;
         return cue.copyWith(
           orig: text,
           status: text.trim().isEmpty ? CueStatus.empty : CueStatus.ok,
         );
-      }).toList(),
+      }).toList();
+
+  /// Сессия того же ролика на другом языке: реплики сбрасываются в
+  /// «не распознано», кроме тех, для которых есть пробы этого языка.
+  Session _switchLanguage(Session session, String lang) {
+    final blank = [
+      for (final cue in session.cues)
+        Cue(
+          index: cue.index,
+          range: cue.range,
+          orig: '',
+          ru: '',
+          status: CueStatus.pending,
+          flags: session.forcedSplit ? const {CueFlag.forcedSplit} : const {},
+        ),
+    ];
+    return session.copyWith(
+      lang: lang,
+      langConfidence: null,
+      langRunnerUp: session.lang,
+      cues: _withTexts(blank, session.probeTexts[lang] ?? const {}),
     );
-    await store.save(session);
-    report(const PipelineProgress(PipelineStage.done));
-    return LanguageProbe(verdict: verdict, session: session);
   }
 
   /// Извлекает звук, ищет паузы, режет сегменты и заводит пустые реплики.
@@ -325,9 +478,13 @@ class Pipeline {
   }
 
   /// Переносит уже полученные тексты на свежую нарезку по совпадающим границам.
+  /// Язык, уверенность и пробы остаются от прежней сессии: нарезка
+  /// меняется, а они — нет.
   Session _mergeRecognized({required Session fresh, required Session previous}) {
     final byIndex = {for (final cue in previous.cues) cue.index: cue};
-    return fresh.copyWith(
+    return previous.copyWith(
+      silenceThreshold: fresh.silenceThreshold,
+      forcedSplit: fresh.forcedSplit,
       cues: fresh.cues.map((cue) {
         final old = byIndex[cue.index];
         final sameRange = old != null &&
