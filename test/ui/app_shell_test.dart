@@ -1,9 +1,12 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:desktop_drop/desktop_drop.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:subtitler/app/app_controller.dart';
 import 'package:subtitler/app/runtime.dart';
 import 'package:subtitler/app/user_error.dart';
@@ -378,5 +381,33 @@ void main() {
     expect(tester.takeException(), isNull, reason: 'журнал');
 
     await closeApp(tester, h);
+  });
+
+  testWidgets('закрытие окна дописывает отложенную правку и журнал',
+      (tester) async {
+    // Запись на диск — настоящий ввод-вывод, поэтому всё, что его
+    // трогает, идёт в настоящем времени (runAsync), а не в поддельном.
+    final h = (await tester.runAsync(started))!;
+    final video = p.join(h.root.path, 'videos', 'беседа.mp4');
+    Directory(p.dirname(video)).createSync(recursive: true);
+    await pumpApp(tester, h.controller);
+    await tester.runAsync(() async {
+      h.controller.debugEmulate(
+          stage: AppStage.review, session: sampleSession(videoPath: video));
+      // Задержка записи правок в тестах — час: без закрытия окна правка
+      // на диск не попала бы.
+      h.controller.updateTranslation(1, 'правка перед закрытием окна');
+    });
+
+    final response = await tester
+        .runAsync(() => tester.binding.handleRequestAppExit());
+
+    expect(response, AppExitResponse.exit);
+    expect(File('$video.subtitler.json').readAsStringSync(),
+        contains('правка перед закрытием окна'));
+    expect(h.log.entries.last.message, 'Окно закрыто');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(h.dispose);
   });
 }

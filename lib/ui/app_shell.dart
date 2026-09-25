@@ -112,6 +112,8 @@ class _AppShellState extends State<AppShell> {
     } catch (e) {
       c.log.warn('Правки перед закрытием не дописались: $e');
     }
+    // Последняя строка журнала отличает обычное закрытие от падения.
+    c.log.info('Окно закрыто');
     await c.log.close();
     return AppExitResponse.exit;
   }
