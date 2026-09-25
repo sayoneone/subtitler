@@ -188,6 +188,44 @@ class LanguageChoice {
 /// Ролик длиннее этого — сначала вопрос «Продолжить?» (§5).
 const Duration kLongVideoThreshold = Duration(minutes: 15);
 
+/// Видео закодировано и проверено, но на место его поставить не удалось
+/// (прежний файл занят плеером). «Повторить» тогда только ставит его на
+/// место, без нового кодирования, — если файл цел и собран из той же
+/// сессии, что сейчас на экране.
+class _VerifiedVideo {
+  final String partial;
+  final String target;
+  final SrtFiles srt;
+  final bool inFallback;
+
+  /// Сессия, из которой собрано видео. Любая правка создаёт новую.
+  final Session session;
+  final int length;
+  final DateTime modified;
+
+  _VerifiedVideo({
+    required this.partial,
+    required this.target,
+    required this.srt,
+    required this.inFallback,
+    required this.session,
+  })  : length = File(partial).lengthSync(),
+        modified = File(partial).lastModifiedSync();
+
+  /// Файл на месте, не менялся, и правок с тех пор не было.
+  bool isUsableFor(Session? current) {
+    if (!identical(current, session)) return false;
+    try {
+      final file = File(partial);
+      return file.existsSync() &&
+          file.lengthSync() == length &&
+          file.lastModifiedSync() == modified;
+    } on FileSystemException {
+      return false;
+    }
+  }
+}
+
 class _Job {
   bool cancelled = false;
 
@@ -433,6 +471,9 @@ class AppController extends ChangeNotifier {
 
   bool get isSaving =>
       _saveStatus == SaveStatus.burning || _saveStatus == SaveStatus.verifying;
+
+  /// Проверенное видео, которое ждёт замены занятого файла.
+  _VerifiedVideo? _verified;
 
   SrtFiles? _srtFiles;
 
@@ -1002,6 +1043,16 @@ class AppController extends ChangeNotifier {
     _saveProgress = 0;
     _saveResult = null;
     _saveError = null;
+    _dropVerified();
+  }
+
+  /// Проверенное видео больше не пригодится (правка, другое видео, смена
+  /// языка): убрать его, чтобы оно не лежало рядом с исходником.
+  void _dropVerified() {
+    final verified = _verified;
+    if (verified == null) return;
+    _verified = null;
+    deleteQuietly(verified.partial, log: log);
   }
 
   Future<void> _enterReview(Session session) async {
@@ -1310,6 +1361,10 @@ class AppController extends ChangeNotifier {
     final video = _videoPath;
     if (_stage != AppStage.review || _session == null || video == null) return;
     if (isSaving || _switching) return;
+    // Проверенное видео прошлой попытки забираем до _resetSave: тот его
+    // удалил бы.
+    final verified = _verified;
+    _verified = null;
     _resetSave();
     _saveStatus = SaveStatus.burning;
     _notify();
@@ -1318,6 +1373,20 @@ class AppController extends ChangeNotifier {
     final workDir = _runtime!.workDirFor(video);
     final burnSrt = p.join(workDir, 'burn_ru.srt');
     try {
+      if (verified != null) {
+        if (verified.isUsableFor(_session)) {
+          log.info('Видео уже закодировано и проверено — только ставим его '
+              'на место: ${verified.target}');
+          _saveStatus = SaveStatus.verifying;
+          _saveProgress = 1;
+          _notify();
+          _place(_outputsFor(video), verified);
+          return;
+        }
+        log.info('Проверенное видео устарело или пропало — кодируем заново');
+        deleteQuietly(verified.partial, log: log);
+      }
+
       await flush(); // иначе в файлах рядом с видео — текст до правки
       final session = _session!;
       final checkAt = visibilityCheckPoint(session.cues);
@@ -1399,16 +1468,16 @@ class AppController extends ChangeNotifier {
       if (!check.visible) throw SubtitlesInvisibleException(check);
       log.info('Субтитры в кадре видны: ${check.describe()}');
 
-      outputs.replace(partial, names.video);
-      partial = null;
-      _saveResult = SaveResult(
-        videoPath: names.video,
-        origSrtPath: srt.names.origSrt,
-        ruSrtPath: srt.names.ruSrt,
+      final done = _VerifiedVideo(
+        partial: partial,
+        target: names.video,
+        srt: srt,
         inFallback: inFallback,
+        session: session,
       );
-      _saveStatus = SaveStatus.saved;
-      log.info('Готово: ${names.video}');
+      // Проверенный файл дальше не удаляем, даже если замена не удастся.
+      partial = null;
+      _place(outputs, done);
     } catch (e, stack) {
       log.error('Сохранение не удалось: $e');
       log.debug('$stack');
@@ -1432,6 +1501,26 @@ class AppController extends ChangeNotifier {
     } on FileSystemException catch (e) {
       log.warn('Не удалось удалить пустую рабочую папку: $e');
     }
+  }
+
+  /// Ставит проверенное видео на место `<имя>_ru.mp4`. Не вышло (прежний
+  /// файл открыт в плеере) — видео остаётся ждать, и «Повторить» попробует
+  /// ещё раз без кодирования: минуты работы не выбрасываются.
+  void _place(OutputFiles outputs, _VerifiedVideo verified) {
+    try {
+      outputs.replace(verified.partial, verified.target);
+    } catch (_) {
+      _verified = verified;
+      rethrow;
+    }
+    _saveResult = SaveResult(
+      videoPath: verified.target,
+      origSrtPath: verified.srt.names.origSrt,
+      ruSrtPath: verified.srt.names.ruSrt,
+      inFallback: verified.inFallback,
+    );
+    _saveStatus = SaveStatus.saved;
+    log.info('Готово: ${verified.target}');
   }
 
   /// «Открыть папку» (десктоп) или «Поделиться» (Android: видео и оба .srt).

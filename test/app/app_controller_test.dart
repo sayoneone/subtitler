@@ -1027,6 +1027,76 @@ void main() {
       }
     }, skip: Platform.isWindows ? null : lockSkipReason);
 
+    group('Готовый файл заняли уже после кодирования', () {
+      // Плеер держит прежний <имя>_ru.mp4 так, что дописать можно, а
+      // удалить нельзя: предварительная проба canReplace проходит, ролик
+      // кодируется и проверяется, и только замена упирается в «занят».
+      Future<(AppHarness, String, File, FileLockHolder)> failedReplace() async {
+        final (h, _, video) = await turkishVideo();
+        await h.controller.openVideo(video);
+        final target = File(beside(video, '_ru.mp4'))..writeAsStringSync('старое');
+        final lock = await holdFileLock(target.path, share: 'ReadWrite');
+        var released = false;
+        addTearDown(() async {
+          if (!released) await lock.release();
+        });
+        await h.controller.save();
+        expect(h.controller.saveStatus, SaveStatus.failed);
+        expect(h.controller.saveError!.title,
+            'Файл ${p.basename(target.path)} открыт в другой программе, '
+            'закройте его и повторите');
+        expect(h.runner.burnCalls, 1);
+        await lock.release();
+        released = true;
+        return (h, video, target, lock);
+      }
+
+      test('проверенное видео не удаляется, «Повторить» только ставит его '
+          'на место', () async {
+        final (h, video, target, _) = await failedReplace();
+        final partial = File(beside(video, '_ru.partial.mp4'));
+        expect(partial.existsSync(), isTrue,
+            reason: 'проверенное видео — годное, его не выбрасываем');
+        final verifiedLength = partial.lengthSync();
+
+        await h.controller.save(); // плеер закрыли — «Повторить»
+
+        expect(h.controller.saveStatus, SaveStatus.saved,
+            reason: '${h.controller.saveError}');
+        expect(h.runner.burnCalls, 1, reason: 'заново не кодируем');
+        expect(target.lengthSync(), verifiedLength);
+        expect(partial.existsSync(), isFalse);
+        expect(h.controller.saveResult!.videoPath, target.path);
+      });
+
+      test('после правки временное видео устарело — удаляется, повтор '
+          'кодирует заново', () async {
+        final (h, video, target, _) = await failedReplace();
+        final partial = File(beside(video, '_ru.partial.mp4'));
+
+        h.controller.updateTranslation(1, 'правка после ошибки');
+        expect(partial.existsSync(), isFalse,
+            reason: 'видео без этой правки ставить на место нельзя');
+        await h.controller.save();
+
+        expect(h.controller.saveStatus, SaveStatus.saved,
+            reason: '${h.controller.saveError}');
+        expect(h.runner.burnCalls, 2);
+        expect(target.readAsStringSync(encoding: latin1), isNot('старое'));
+      });
+
+      test('временное видео пропало — повтор кодирует заново', () async {
+        final (h, video, _, _) = await failedReplace();
+        File(beside(video, '_ru.partial.mp4')).deleteSync();
+
+        await h.controller.save();
+
+        expect(h.controller.saveStatus, SaveStatus.saved,
+            reason: '${h.controller.saveError}');
+        expect(h.runner.burnCalls, 2);
+      });
+    }, skip: Platform.isWindows ? burnSkip : lockSkipReason);
+
     test('Рядом с видео писать нельзя — всё в папке приложения', () async {
       final (h, _, _) = await turkishVideo();
       final c = h.controller;

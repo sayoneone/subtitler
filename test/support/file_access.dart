@@ -39,13 +39,17 @@ const String lockSkipReason =
 /// Открывает [path] в PowerShell с `FileShare.None` и ждёт, пока файл
 /// действительно заблокирован. Держатель отпускает файл, когда появится
 /// файл-сигнал, и в любом случае — через минуту.
-Future<FileLockHolder> holdFileLock(String path) async {
+///
+/// [share] — какой общий доступ оставить другим (значение FileShare).
+/// `'ReadWrite'` — так держат файл плееры, которые разрешают чужую
+/// запись, но не удаление: дозапись проходит, удаление — нет (код 32).
+Future<FileLockHolder> holdFileLock(String path, {String share = 'None'}) async {
   final windowsPath = path.replaceAll('/', r'\');
   final release = File('$path.release');
   if (release.existsSync()) release.deleteSync();
   final releasePath = release.path.replaceAll('/', r'\');
   final script = "\$f = [System.IO.File]::Open('$windowsPath', 'Open', "
-      "'Read', 'None'); "
+      "'Read', '$share'); "
       "[Console]::Out.WriteLine('locked'); [Console]::Out.Flush(); "
       "\$n = 0; while (-not (Test-Path '$releasePath') -and \$n -lt 600) "
       "{ Start-Sleep -Milliseconds 100; \$n++ }; \$f.Close()";
