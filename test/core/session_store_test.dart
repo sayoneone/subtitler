@@ -438,15 +438,43 @@ void main() {
             'правка с носителя');
       });
 
-      test('своя сессия в запасной папке тоже важнее чужой', () async {
+      // Безусловно важнее только сессия рядом с видео. Запасной файл под
+      // своим хешем и файл прежней версии без хеша — такие же кандидаты,
+      // как файлы под чужим хешем: иначе одна и та же флешка, вставленная
+      // то под одной буквой, то под другой, открывалась бы со старым
+      // текстом, а правки, сделанные под другой буквой, были бы не видны.
+      test('флешку вернули под прежней буквой — видны правки под другой',
+          () async {
         final store = SessionStore(fallbackDir: fallback.path);
         final onE = onDrive('E');
-        final onG = onDrive('G');
+        final onF = onDrive('F');
         await store.save(withRu(sessionFor(onE), 'правка на E'));
         File(store.fallbackPathFor(onE)).setLastModifiedSync(yesterday);
-        await store.save(withRu(sessionFor(onG), 'правка на G'));
+        final fromF = await store.load(onF, fpA);
+        await store.save(withRu(fromF!, 'правка на F'));
+        expect(File(store.fallbackPathFor(onF)).existsSync(), isTrue);
 
-        expect((await store.load(onE, fpA))!.cues.single.ru, 'правка на E');
+        final backOnE = await store.load(onE, fpA);
+        expect(backOnE!.cues.single.ru, 'правка на F',
+            reason: 'иначе вшили бы текст без правок, сделанных под F');
+        expect(backOnE.videoPath, onE);
+      });
+
+      test('сессия прежней версии без хеша не перебивает свежие правки',
+          () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        final onE = onDrive('E');
+        final onF = onDrive('F');
+        // После обновления с 0.1.x: в запасной папке файл только по имени.
+        final legacy = File(p.join(fallback.path, 'VID_0001.mp4.subtitler.json'))
+          ..writeAsStringSync(
+              jsonEncode(withRu(sessionFor(onE), 'текст версии 0.1').toJson()))
+          ..setLastModifiedSync(yesterday);
+        await store.save(withRu(sessionFor(onE), 'правка на E'));
+
+        expect((await store.load(onF, fpA))!.cues.single.ru, 'правка на E');
+        expect(legacy.readAsStringSync(), contains('текст версии 0.1'),
+            reason: 'прежний файл только читается');
       });
 
       test('посторонние файлы запасной папки не читаются', () async {
