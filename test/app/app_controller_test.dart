@@ -327,6 +327,11 @@ void main() {
       await c.init();
       await waitForStage(c, AppStage.review);
       expect(c.videoPath, video);
+      // Сообщение ставится, когда открытие первого видео завершилось, —
+      // чуть позже, чем этап сменился на предпросмотр.
+      for (var i = 0; i < 200 && c.notice == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
       expect(c.notice?.hint, contains('запись 2.mp4'));
       expect(File('$second.subtitler.json').existsSync(), isFalse);
     });
