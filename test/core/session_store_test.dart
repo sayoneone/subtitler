@@ -390,6 +390,65 @@ void main() {
             contains('старый текст'), reason: 'чужие файлы не переписываются');
       });
 
+      // Замечание ревью к поиску по чужому хешу: файлы того же ролика,
+      // открытого по другому пути, шли в общий выбор «самый свежий» — и
+      // побеждали свою сессию рядом с видео, если были новее. Рабочая
+      // копия вещдока открывалась с текстом, поправленным в оригинале с
+      // флешки, а первая же правка затирала её собственный файл сессии:
+      // правки по делу пропадали без следа.
+      test('своя сессия рядом с видео важнее более свежей по другому пути',
+          () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        // Рабочая копия вещдока на диске следователя: сессия с правками и
+        // резервная копия второго языка лежат рядом с видео.
+        final work = '${tmp.path}/дело 1/VID_0001.mp4';
+        Directory(p.dirname(work)).createSync(recursive: true);
+        File(work).writeAsBytesSync(List.filled(100, 0));
+        final ownFile =
+            await store.save(withRu(sessionFor(work), 'правка дела 1'));
+        expect(ownFile, store.sessionPathFor(work));
+        final ownBackup = await store.saveBackup(
+            withRu(sessionFor(work), 'узбекский вариант дела 1')
+                .copyWith(lang: 'uz-UZ'));
+        expect(ownBackup, store.backupPathFor(work, 'uz-UZ'));
+        File(ownFile).setLastModifiedSync(yesterday);
+        File(ownBackup).setLastModifiedSync(yesterday);
+
+        // Позже тот же ролик открыли с защищённой флешки: рядом с ним
+        // писать нельзя, его сессия и копия ушли в запасную папку.
+        final original = onDrive('D');
+        expect(
+            await store.save(withRu(sessionFor(original), 'правка с носителя')),
+            store.fallbackPathFor(original));
+        await store.saveBackup(withRu(sessionFor(original), 'узбекский с носителя')
+            .copyWith(lang: 'uz-UZ'));
+
+        final loaded = await store.load(work, fpA);
+        expect(loaded!.cues.single.ru, 'правка дела 1',
+            reason: 'иначе первая же правка затрёт правки рабочей копии');
+        expect((await store.loadBackup(work, 'uz-UZ', fpA))!.cues.single.ru,
+            'узбекский вариант дела 1');
+
+        await store.save(withRu(loaded, 'правка дела 1, вторая'));
+        expect(File(ownFile).readAsStringSync(),
+            allOf(contains('правка дела 1, вторая'),
+                isNot(contains('правка с носителя'))));
+        // Флешка по-прежнему открывается со своим текстом.
+        expect((await store.load(original, fpA))!.cues.single.ru,
+            'правка с носителя');
+      });
+
+      test('своя сессия в запасной папке тоже важнее чужой', () async {
+        final store = SessionStore(fallbackDir: fallback.path);
+        final onE = onDrive('E');
+        final onG = onDrive('G');
+        await store.save(withRu(sessionFor(onE), 'правка на E'));
+        File(store.fallbackPathFor(onE)).setLastModifiedSync(yesterday);
+        await store.save(withRu(sessionFor(onG), 'правка на G'));
+
+        expect((await store.load(onE, fpA))!.cues.single.ru, 'правка на E');
+      });
+
       test('посторонние файлы запасной папки не читаются', () async {
         final store = SessionStore(fallbackDir: fallback.path);
         final onE = onDrive('E');

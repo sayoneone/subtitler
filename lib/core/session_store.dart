@@ -28,8 +28,9 @@ class SessionStore {
   /// вещдоков часто называются одинаково («VID_0001.mp4» из разных дел).
   /// Поэтому к имени видео добавлен хеш полного пути: иначе сессия
   /// одного дела молча затирала бы сессию другого — с ручными правками,
-  /// а ролик пришлось бы оплачивать заново. Читаются и файлы под чужим
-  /// хешем: путь к тому же видео мог смениться (см. [_otherPathFallbacks]).
+  /// а ролик пришлось бы оплачивать заново. Если своей сессии нет,
+  /// читаются и файлы под чужим хешем: путь к тому же видео мог смениться
+  /// (см. [_otherPathFallbacks]).
   String fallbackPathFor(String videoPath) =>
       p.join(fallbackDir, '${_fallbackStem(videoPath)}.subtitler.json');
 
@@ -61,7 +62,8 @@ class SessionStore {
   /// только под своим хешем значит не найти сессию — ролик оплачивался бы
   /// заново, а правки остались бы в осиротевшем файле. Своё ли это видео,
   /// решает отпечаток (см. [_loadFreshest]), как и для файла рядом с
-  /// видео, который перенесли вместе с ним.
+  /// видео, который перенесли вместе с ним. Читаются они, только если
+  /// своей сессии нет (см. [_ownOrMoved]).
   ///
   /// [names] — имена файлов запасной папки ([_fallbackNames]); порядок
   /// не важен, из подходящих берётся самый свежий.
@@ -101,19 +103,43 @@ class SessionStore {
 
   /// Возвращает сессию, только если отпечаток совпал с [actual]; если
   /// подходят и файл рядом с видео, и запасной — более свежий.
-  /// Сессии прежних схем читаются (см. [Session.fromJson]). В запасной
-  /// папке ищется и сессия, записанная, когда путь к видео был другим
-  /// (см. [_otherPathFallbacks]).
+  /// Сессии прежних схем читаются (см. [Session.fromJson]). Если своей
+  /// сессии нет, в запасной папке ищется сессия, записанная, когда путь к
+  /// видео был другим (см. [_ownOrMoved]).
   ///
   /// Сессия привязывается к [videoPath] — пути, по которому её открыли,
   /// а не к записанному внутри JSON (см. [_loadFreshest]).
   Future<Session?> load(String videoPath, SourceFingerprint actual) =>
-      _loadFreshest(videoPath, [
-        sessionPathFor(videoPath),
-        fallbackPathFor(videoPath),
-        _legacyFallbackPathFor(videoPath),
-        ..._otherPathFallbacks(videoPath, 'subtitler.json', _fallbackNames()),
-      ], actual);
+      _ownOrMoved(
+        videoPath,
+        [
+          sessionPathFor(videoPath),
+          fallbackPathFor(videoPath),
+          _legacyFallbackPathFor(videoPath),
+        ],
+        () => _otherPathFallbacks(
+            videoPath, 'subtitler.json', _fallbackNames()),
+        actual,
+      );
+
+  /// Своя сессия — рядом с видео, в запасной папке под своим хешем или под
+  /// прежним именем ([own]) — важнее файлов, записанных по другому пути
+  /// ([moved]): те читаются, только если своей подходящей нет.
+  ///
+  /// Файл под чужим хешем — не обязательно тот же носитель под другой
+  /// буквой. Это может быть и другая копия того же вещдока: рабочая копия
+  /// лежит на диске, а оригинал открывали с защищённой флешки, и у каждой
+  /// свои правки. Выбирай «самый свежий» из всех сразу, рабочая копия
+  /// открылась бы с текстом оригинала, а первая же правка затёрла бы её
+  /// собственный файл сессии вместе с правками по делу.
+  Future<Session?> _ownOrMoved(
+    String videoPath,
+    List<String> own,
+    List<String> Function() moved,
+    SourceFingerprint actual,
+  ) async =>
+      await _loadFreshest(videoPath, own, actual) ??
+      await _loadFreshest(videoPath, moved(), actual);
 
   /// Пишет сессию и возвращает фактический путь.
   Future<String> save(Session session) => _write(
@@ -145,13 +171,17 @@ class SessionStore {
     SourceFingerprint actual,
     List<String> fallbackNames,
   ) async {
-    final session = await _loadFreshest(videoPath, [
-      backupPathFor(videoPath, lang),
-      fallbackBackupPathFor(videoPath, lang),
-      _legacyFallbackBackupPathFor(videoPath, lang),
-      ..._otherPathFallbacks(
+    final session = await _ownOrMoved(
+      videoPath,
+      [
+        backupPathFor(videoPath, lang),
+        fallbackBackupPathFor(videoPath, lang),
+        _legacyFallbackBackupPathFor(videoPath, lang),
+      ],
+      () => _otherPathFallbacks(
           videoPath, 'subtitler.$lang.json', fallbackNames),
-    ], actual);
+      actual,
+    );
     // Копию могли переименовать руками — язык внутри важнее имени файла.
     return session?.lang == lang ? session : null;
   }

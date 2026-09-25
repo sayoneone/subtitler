@@ -1299,6 +1299,50 @@ void main() {
       expect(c.session!.cues.first.ru, 'правка следователя');
     });
 
+    // Замечание ревью к предыдущему: файлы в папке программы, записанные
+    // по другому пути, побеждали свою сессию рядом с видео, если были
+    // новее. Рабочая копия открывалась с чужим текстом, и следующая же
+    // правка затирала её файл сессии вместе с правками по делу.
+    test('Рабочая копия открывается со своими правками, даже если оригинал '
+        'с защищённой флешки правили позже', () async {
+      final h = await started();
+      final c = h.controller;
+      final stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      h.stt = stt;
+      // Рабочая копия на диске: сессия с правкой рядом с видео.
+      final work =
+          h.copyVideo(probeClip, folder: 'дело 1', name: 'VID_0001.mp4');
+      await c.openVideo(work);
+      c.updateTranslation(1, 'правка дела 1');
+      await c.flush();
+      await c.goHome();
+      File('$work.subtitler.json').setLastModifiedSync(
+          DateTime.now().subtract(const Duration(days: 1)));
+
+      // Тот же ролик с защищённой флешки: место сессии рядом с ним занято
+      // папкой, правка уходит в папку программы.
+      final original =
+          h.copyVideo(probeClip, folder: 'носитель D', name: 'VID_0001.mp4');
+      Directory('$original.subtitler.json').createSync();
+      await c.openVideo(original);
+      expect(c.stage, AppStage.review);
+      c.updateTranslation(1, 'правка с носителя');
+      await c.flush();
+      await c.goHome();
+
+      stt.calls.clear();
+      await c.openVideo(work);
+      expect(c.stage, AppStage.review);
+      expect(stt.calls, isEmpty);
+      expect(c.session!.cues.first.ru, 'правка дела 1');
+      c.updateTranslation(2, 'ещё правка дела 1');
+      await c.flush();
+      final own = sessionOnDisk(work);
+      expect(own.cues.first.ru, 'правка дела 1',
+          reason: 'правка по делу не затёрта чужим текстом');
+      expect(own.cues[1].ru, 'ещё правка дела 1');
+    });
+
     // Дефект 3: «Вшить» сразу после правки брал с диска старый SRT —
     // правка попадала туда только через 700 мс.
     test('Сохранение сразу после правки берёт свежий текст', () async {
