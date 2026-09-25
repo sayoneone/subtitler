@@ -290,13 +290,47 @@ class AppController extends ChangeNotifier {
   /// Видео из командной строки, ещё не открытое: ждёт главного экрана.
   String? _pendingVideo;
 
+  /// Ещё одно видео, брошенное на значок, пока [_pendingVideo] ждало:
+  /// само оно не откроется, о нём скажет сообщение (см. [_queueVideo]).
+  String? _extraPendingVideo;
+
   void _openPendingVideo() {
     final video = _pendingVideo;
     if (video == null || _stage != AppStage.home) return;
     _pendingVideo = null;
     log.hideFolderOf(video);
     log.info('Видео передано при запуске: $video');
-    unawaited(openVideo(video));
+    final extra = _extraPendingVideo;
+    _extraPendingVideo = null;
+    // Сообщение о втором видео — когда первое открылось: и openVideo, и
+    // начало обработки сбрасывают прежние сообщения, поставленное раньше
+    // пропало бы, не показавшись.
+    unawaited(openVideo(video).then((_) {
+      final current = _videoPath;
+      if (extra == null || current == null || !p.equals(current, video)) {
+        return;
+      }
+      _notice = UserError(
+        title: 'Открыто первое из брошенных видео',
+        hint: 'Чтобы открыть «${p.basename(extra)}», закончите с этим, '
+            'вернитесь на главный экран и перетащите его ещё раз.',
+      );
+      _notify();
+    }));
+  }
+
+  /// Пока программа не готова, ждать может одно видео — первое. Следующее
+  /// его не вытесняет: иначе первое молча не открылось бы, а человек
+  /// считал бы, что в работе оба. О втором скажет сообщение, когда первое
+  /// откроется.
+  void _queueVideo(String video) {
+    final waiting = _pendingVideo;
+    if (waiting == null) {
+      _pendingVideo = video;
+    } else if (!p.equals(waiting, video)) {
+      log.info('Открытия уже ждёт другое видео — это само не откроется');
+      _extraPendingVideo = video;
+    }
   }
 
   /// Экран ключа закрыт. Вернулись на главный экран — видео из очереди
@@ -313,6 +347,7 @@ class AppController extends ChangeNotifier {
   }
 
   void _dropPendingVideo() {
+    _extraPendingVideo = null;
     if (_pendingVideo == null) return;
     log.info('Видео, ждавшее ключа, не открыто: на экране другое видео');
     _pendingVideo = null;
@@ -344,13 +379,13 @@ class AppController extends ChangeNotifier {
     log.info('Видео передано повторным запуском: $video');
     switch (_stage) {
       case AppStage.starting:
-        _pendingVideo = video;
+        _queueVideo(video);
         return;
       // Первый ввод ключа (или после «Удалить ключ»): вернуться отсюда
       // можно только на главный экран, там видео и откроется.
       case AppStage.needsKey
           when _stageBeforeKeyChange == null && _videoPath == null:
-        _pendingVideo = video;
+        _queueVideo(video);
         return;
       case AppStage.needsKey when _videoPath == null:
         // Ключ меняют с главного экрана: текущего видео нет, и сообщение

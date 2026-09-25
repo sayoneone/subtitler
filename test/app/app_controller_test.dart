@@ -313,6 +313,24 @@ void main() {
       expect(c.videoPath, isNull);
     });
 
+    // Замечание к очереди: пока программа запускается, ждать может одно
+    // видео. Раньше второе, брошенное на значок, молча вытесняло первое:
+    // человек считал, что в работе оба, а первое не открывалось вовсе.
+    test('Второе видео, брошенное на значок во время запуска, не вытесняет '
+        'первое — о нём сообщение', () async {
+      final (h, video) = await launchedWith();
+      final c = h.controller;
+      final second = p.join(p.dirname(video), 'запись 2.mp4');
+      File(probeClip).copySync(second);
+      c.receiveFromAnotherLaunch(second);
+
+      await c.init();
+      await waitForStage(c, AppStage.review);
+      expect(c.videoPath, video);
+      expect(c.notice?.hint, contains('запись 2.mp4'));
+      expect(File('$second.subtitler.json').existsSync(), isFalse);
+    });
+
     test('Без ключа видео ждёт ключа и открывается сразу после него',
         () async {
       final (h, video) = await launchedWith(storedKey: null);
