@@ -88,6 +88,22 @@ void main() {
       // lexicon.dart, тест не даёт тихо сделать sal общим словом.
       expect(languageFeatures('sal', 'uz-UZ', against: ['tr-TR']).own, 1);
       expect(languageFeatures('sal', 'tr-TR', against: ['uz-UZ']).foreign, 1);
+      // То же для узбекских shular «эти» и ancha «довольно» против редких
+      // турецких sular «воды» и anca «столько». Общими их сделать нельзя:
+      // турецкая модель пишет услышанное shular как şular, а ancha — как
+      // ança, и скелеты у них те же.
+      for (final (uzbek, turkish, heard) in [
+        ('shular', 'sular', 'şular'),
+        ('ancha', 'anca', 'ança'),
+      ]) {
+        expect(languageFeatures(uzbek, 'uz-UZ', against: ['tr-TR']).own, 1,
+            reason: uzbek);
+        expect(languageFeatures(turkish, 'tr-TR', against: ['uz-UZ']).foreign,
+            1,
+            reason: turkish);
+        expect(languageFeatures(heard, 'tr-TR', against: ['uz-UZ']).foreign, 1,
+            reason: heard);
+      }
     });
 
     test('Чужое окончание работает против варианта', () {
@@ -122,7 +138,10 @@ void main() {
       // не должно совпасть с узбекским вопросом -misiz. kavga, dalga,
       // karga, morga оканчиваются как дательный -ga, kaygan, yorgan и
       // organ — как причастие -gan, aman, anlaman и yapmaman — как -aman
-      // «я …-ю», kendimi и adımı — как вопрос -dimi.
+      // «я …-ю», kendimi и adımı — как вопрос -dimi. Из всех 10 000 слов
+      // частотного списка турецких субтитров так же попадались yardımı,
+      // saldırgan «нападавший» (в записях о нападениях — обычное слово),
+      // eleman, слитное herzaman и разговорное dimi «не так ли?».
       const words = [
         'sokağa', 'çocuğa', 'sağa', 'yatağa', 'ayağa', 'dağa', 'bardağa', //
         'dağı', 'doğan', 'soğan', 'arka', 'şaka', 'halka', 'fabrika', 'yaka',
@@ -130,7 +149,9 @@ void main() {
         'kavga', 'dalga', 'karga', 'morga', 'kaygan', 'yorgan', 'yorganı',
         'yorganda', 'organ', 'organlar', 'aman', 'koskocaman', 'anlaman',
         'başlaman', 'toplaman', 'ağlaman', 'yapmaman', 'olmaman', 'kendimi',
-        'adımı', 'derdimi',
+        'adımı', 'derdimi', 'yardımı', 'saldırgan', 'saldırganı',
+        'saldırganlar', 'saldırganda', 'saldırgandan', 'eleman', 'herzaman',
+        'dimi',
       ];
       for (final word in words) {
         final f = languageFeatures(word, 'tr-TR', against: ['uz-UZ']);
@@ -144,7 +165,10 @@ void main() {
       // модель, записав их, слышала турецкую речь, а не узбекские -aman,
       // -ga, -dimi, -gan. Зеркально köpinçe, tuşunça, turmuş, kelacak —
       // турецкая калька узбекских ko'pincha, tushuncha, turmush, kelajak.
-      const turkishHeardByUzbek = ['aman', 'kavga', 'kendimi', 'organ'];
+      const turkishHeardByUzbek = [
+        'aman', 'kavga', 'kendimi', 'organ', 'yardimi', 'saldirgan', //
+        'saldirgani', 'eleman',
+      ];
       const uzbekHeardByTurkish = [
         'köpinçe', 'tuşunça', 'turmuş', 'ötmiş', 'kelacak', 'kömak', //
         'ihtiyor', 'ziyorat',
