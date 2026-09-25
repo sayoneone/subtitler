@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/models.dart';
 
@@ -46,9 +48,53 @@ void main() {
       ],
     );
     final restored = Session.fromJson(session.toJson());
-    expect(restored.schemaVersion, 1);
+    expect(restored.schemaVersion, Session.currentSchemaVersion);
     expect(restored.lang, 'tr-TR');
     expect(restored.forcedSplit, isTrue);
     expect(restored.cues.single.orig, 'abi');
+  });
+
+  test('Уверенность, второй язык и пробы всех языков переживают сериализацию',
+      () {
+    const session = Session(
+      videoPath: '/tmp/video.mp4',
+      fingerprint: SourceFingerprint(sizeBytes: 10, durationSec: 1.0),
+      lang: 'tr-TR',
+      langConfidence: LanguageConfidence.low,
+      langRunnerUp: 'uz-UZ',
+      probeTexts: {
+        'tr-TR': {3: 'yarın sabah erkenden çarşıya gideceğiz', 7: ''},
+        'uz-UZ': {3: 'ertaga ertalab bozorga boramiz'},
+      },
+      silenceThreshold: '-30dB',
+      forcedSplit: false,
+      cues: [],
+    );
+    // Через настоящий JSON: ключи-номера реплик там становятся строками.
+    final restored = Session.fromJson(
+        jsonDecode(jsonEncode(session.toJson())) as Map<String, dynamic>);
+    expect(restored.langConfidence, LanguageConfidence.low);
+    expect(restored.langRunnerUp, 'uz-UZ');
+    expect(restored.probeTexts['tr-TR'],
+        {3: 'yarın sabah erkenden çarşıya gideceğiz', 7: ''});
+    expect(restored.probeTexts['uz-UZ'], {3: 'ertaga ertalab bozorga boramiz'});
+  });
+
+  test('copyWith сбрасывает уверенность только по явному null', () {
+    const session = Session(
+      videoPath: '/tmp/video.mp4',
+      fingerprint: SourceFingerprint(sizeBytes: 10, durationSec: 1.0),
+      lang: 'tr-TR',
+      langConfidence: LanguageConfidence.low,
+      langRunnerUp: 'uz-UZ',
+      silenceThreshold: '-30dB',
+      forcedSplit: false,
+      cues: [],
+    );
+    expect(session.copyWith(lang: 'uz-UZ').langConfidence,
+        LanguageConfidence.low);
+    final manual = session.copyWith(langConfidence: null, langRunnerUp: null);
+    expect(manual.langConfidence, isNull);
+    expect(manual.langRunnerUp, isNull);
   });
 }

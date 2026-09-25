@@ -97,13 +97,43 @@ class SourceFingerprint {
       );
 }
 
+/// Насколько автомат уверен в выбранном языке.
+enum LanguageConfidence {
+  /// Язык уверенно впереди — плашку «Не тот язык?» можно не выделять.
+  high,
+
+  /// Выбран лучший вариант, но отрыв мал, слов мало или реплики
+  /// «проголосовали» по-разному. Обработка всё равно идёт дальше,
+  /// а в редакторе показывается жёлтая плашка со вторым языком.
+  low,
+
+  /// Все модели промолчали: сравнивать было нечего, язык взят
+  /// из прошлой обработки или первый из настроек.
+  none,
+}
+
 class Session {
-  static const int currentSchemaVersion = 1;
+  /// 2 — добавлены [langConfidence], [langRunnerUp] и [probeTexts].
+  static const int currentSchemaVersion = 2;
 
   final int schemaVersion;
   final String videoPath;
   final SourceFingerprint fingerprint;
   final String lang;
+
+  /// Уверенность автоматического выбора языка. `null` — язык выбрал
+  /// человек (сменил его в редакторе) или сессия записана версией,
+  /// которая этого ещё не хранила: сомневаться тогда не в чем.
+  final LanguageConfidence? langConfidence;
+
+  /// Второй по оценке язык — его меню «Не тот язык?» предлагает первым.
+  final String? langRunnerUp;
+
+  /// Пробные распознавания ВСЕХ проверенных языков: язык → номер
+  /// реплики → текст. За них уже заплачено, поэтому при смене языка
+  /// эти реплики повторно не распознаются.
+  final Map<String, Map<int, String>> probeTexts;
+
   final String silenceThreshold;
   final bool forcedSplit;
   final List<Cue> cues;
@@ -113,18 +143,39 @@ class Session {
     required this.videoPath,
     required this.fingerprint,
     required this.lang,
+    this.langConfidence,
+    this.langRunnerUp,
+    this.probeTexts = const {},
     required this.silenceThreshold,
     required this.forcedSplit,
     required this.cues,
   });
 
-  Session copyWith({List<Cue>? cues, String? lang}) => Session(
+  /// [langConfidence] и [langRunnerUp] можно сбросить в `null`, передав
+  /// `null` явно; не переданные поля остаются как были.
+  Session copyWith({
+    List<Cue>? cues,
+    String? lang,
+    Object? langConfidence = _keep,
+    Object? langRunnerUp = _keep,
+    Map<String, Map<int, String>>? probeTexts,
+    String? silenceThreshold,
+    bool? forcedSplit,
+  }) =>
+      Session(
         schemaVersion: schemaVersion,
         videoPath: videoPath,
         fingerprint: fingerprint,
         lang: lang ?? this.lang,
-        silenceThreshold: silenceThreshold,
-        forcedSplit: forcedSplit,
+        langConfidence: identical(langConfidence, _keep)
+            ? this.langConfidence
+            : langConfidence as LanguageConfidence?,
+        langRunnerUp: identical(langRunnerUp, _keep)
+            ? this.langRunnerUp
+            : langRunnerUp as String?,
+        probeTexts: probeTexts ?? this.probeTexts,
+        silenceThreshold: silenceThreshold ?? this.silenceThreshold,
+        forcedSplit: forcedSplit ?? this.forcedSplit,
         cues: cues ?? this.cues,
       );
 
@@ -133,21 +184,62 @@ class Session {
         'videoPath': videoPath,
         'fingerprint': fingerprint.toJson(),
         'lang': lang,
+        'langConfidence': langConfidence?.name,
+        'langRunnerUp': langRunnerUp,
+        // Ключи JSON — только строки, поэтому номер реплики пишется строкой.
+        'probeTexts': {
+          for (final entry in probeTexts.entries)
+            entry.key: {
+              for (final text in entry.value.entries) '${text.key}': text.value,
+            },
+        },
         'silenceThreshold': silenceThreshold,
         'forcedSplit': forcedSplit,
         'cues': cues.map((c) => c.toJson()).toList(),
       };
 
-  static Session fromJson(Map<String, dynamic> json) => Session(
-        schemaVersion: json['schemaVersion'] as int,
-        videoPath: json['videoPath'] as String,
-        fingerprint:
-            SourceFingerprint.fromJson(json['fingerprint'] as Map<String, dynamic>),
-        lang: json['lang'] as String,
-        silenceThreshold: json['silenceThreshold'] as String,
-        forcedSplit: json['forcedSplit'] as bool,
-        cues: (json['cues'] as List)
-            .map((c) => Cue.fromJson(c as Map<String, dynamic>))
-            .toList(),
-      );
+  /// Читает сессию текущей схемы и всех прежних.
+  ///
+  /// Сессия прежней схемы поднимается до текущей: недостающие поля получают
+  /// значения по умолчанию. Отказываться от неё нельзя — иначе после
+  /// обновления приложения каждый уже обработанный ролик пришлось бы
+  /// оплачивать заново. Схему новее текущей не угадываем: [FormatException].
+  static Session fromJson(Map<String, dynamic> json) {
+    final version = json['schemaVersion'] as int;
+    if (version < 1 || version > currentSchemaVersion) {
+      throw FormatException('Неизвестная версия схемы сессии: $version');
+    }
+    // Схема 1 не знала про уверенность и пробы: поля отсутствуют,
+    // и ниже они получают значения «язык выбран человеком, проб нет».
+    return Session(
+      videoPath: json['videoPath'] as String,
+      fingerprint:
+          SourceFingerprint.fromJson(json['fingerprint'] as Map<String, dynamic>),
+      lang: json['lang'] as String,
+      langConfidence: LanguageConfidence.values
+          .asNameMap()[json['langConfidence'] as String?],
+      langRunnerUp: json['langRunnerUp'] as String?,
+      probeTexts: _probeTextsFromJson(json['probeTexts']),
+      silenceThreshold: json['silenceThreshold'] as String,
+      forcedSplit: json['forcedSplit'] as bool,
+      cues: (json['cues'] as List)
+          .map((c) => Cue.fromJson(c as Map<String, dynamic>))
+          .toList(),
+    );
+  }
+
+  static Map<String, Map<int, String>> _probeTextsFromJson(Object? raw) {
+    if (raw == null) return const {};
+    return {
+      for (final entry in (raw as Map<String, dynamic>).entries)
+        entry.key: {
+          for (final text in (entry.value as Map<String, dynamic>).entries)
+            int.parse(text.key): text.value as String,
+        },
+    };
+  }
 }
+
+/// Метка «поле не передано» для [Session.copyWith]: отличает её от
+/// явного `null`, которым поле сбрасывается.
+const Object _keep = Object();
