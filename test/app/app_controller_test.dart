@@ -1507,6 +1507,67 @@ void main() {
     expect(h.log.asText(), contains('***КЛЮЧ***'));
   }, skip: burnSkip);
 
+  // В сессии и её резервной копии записан путь, по которому видео открыли
+  // в прошлый раз. Папку дела переименовали — следующий запуск прячет в
+  // журнале только новую папку. Прежнее название (с фамилией) не должно
+  // попасть в журнал ни при открытии, ни при смене языка, правке и
+  // сохранении: всё это пишется по пути открытого видео.
+  test('Папку дела переименовали — прежнего названия в журнале нет',
+      () async {
+    final (h, stt, _) = await turkishVideo();
+    final video = h.copyVideo(probeClip,
+        folder: p.join('Дела', 'Дело 5 Иванов'), name: 'clip.mp4');
+    await h.controller.openVideo(video);
+    expect(h.controller.stage, AppStage.review);
+    // Второй язык — платно: турецкий вариант уходит в резервную копию со
+    // своим путём внутри.
+    await h.controller.switchLanguage('uz-UZ');
+    expect(h.controller.language, 'uz-UZ');
+    await h.controller.goHome();
+    expect(File('$video.subtitler.tr-TR.json').readAsStringSync(),
+        contains('Дело 5 Иванов'),
+        reason: 'в копии записан прежний путь — на нём и держится проверка');
+
+    final renamed = p.join(h.root.path, 'Дела', 'Дело 7 Петров');
+    Directory(p.dirname(video)).renameSync(renamed);
+    final moved = p.join(renamed, 'clip.mp4');
+    expect(sessionOnDisk(moved).videoPath, video);
+
+    // Следующий запуск программы: новый журнал, та же папка программы.
+    stt.calls.clear();
+    final again = makeTestController(root: h.root, stt: stt);
+    addTearDown(again.dispose);
+    final c = again.controller;
+    await c.init();
+    final logFile = p.join(h.root.path, 'журнал', 'subtitler.log');
+    again.log.attachFile(logFile);
+
+    await c.openVideo(moved);
+    expect(c.stage, AppStage.review);
+    await c.switchLanguage('tr-TR');
+    expect(c.language, 'tr-TR');
+    expect(stt.calls, isEmpty, reason: 'оба языка уже распознаны');
+    c.updateTranslation(1, 'выдуманная правка следователя');
+    await c.flush();
+    await c.save();
+    expect(c.saveStatus, SaveStatus.saved);
+    final exported = await c.exportLog();
+    await again.log.close();
+
+    final journals = {
+      'в памяти': again.log.asText(),
+      'в файле': File(logFile).readAsStringSync(),
+      '«Сохранить журнал»': File(exported).readAsStringSync(),
+      '«Технические детали»': c.recentLog(lines: 1000),
+    };
+    for (final MapEntry(key: where, value: journal) in journals.entries) {
+      for (final name in ['Дело 5', 'Иванов', 'Дело 7', 'Петров']) {
+        expect(journal, isNot(contains(name)), reason: '$name $where');
+      }
+    }
+    expect(again.log.asText(), contains('clip.mp4'));
+  }, skip: burnSkip);
+
   group('Язык', () {
     test('Переключение на язык из резервной копии бесплатно', () async {
       final (h, stt, video) = await turkishVideo();
