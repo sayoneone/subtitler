@@ -14,6 +14,7 @@ import 'package:subtitler/core/cue_timeline.dart';
 import 'package:subtitler/core/ffmpeg/ffmpeg_locator.dart';
 import 'package:subtitler/core/languages.dart';
 import 'package:subtitler/core/models.dart';
+import 'package:subtitler/core/session_store.dart';
 import 'package:subtitler/core/srt.dart';
 
 import '../support/app_harness.dart';
@@ -1045,13 +1046,8 @@ void main() {
       c.cancel();
       gated.release();
       await switching;
-      expect(c.stage, AppStage.cancelled);
-      await c.openPartial();
-      expect(c.session!.cues.where((cue) => cue.status == CueStatus.pending),
-          isNotEmpty);
-
-      // Обратно на турецкий — бесплатно; недоделанный казахский ушёл в копию.
-      await c.switchLanguage('tr-TR');
+      // «Отмена» вернула турецкий, недоделанный казахский ушёл в копию.
+      expect(c.stage, AppStage.review);
       expect(c.language, 'tr-TR');
       final kazakh = c.allLanguageChoices.firstWhere((l) => l.code == 'kk-KZ');
       expect(kazakh.ready, isFalse,
@@ -1069,6 +1065,71 @@ void main() {
           everyElement(CueStatus.ok));
       expect(c.session!.cues.every((cue) => cue.ru.startsWith('RU:')), isTrue);
       expect(stt.calls, [('kk-KZ', 2), ('kk-KZ', 3)]);
+    });
+
+    // Раньше основной сессией после «Отмены» оставалась заготовка нового
+    // языка: повторное открытие видео молча распознавало на нём весь
+    // ролик — ровно то платное, от чего отказались, — а выправленный
+    // вариант лежал только в резервной копии.
+    test('Отмена платной смены языка — прежний язык остаётся основным, '
+        'оплаченное на новом — в копии', () async {
+      final (h, stt, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      c.updateTranslation(1, 'правка следователя');
+
+      // «Не тот язык? → узбекский»: реплика 2 ушла в распознавание, и
+      // человек передумал, пока запрос в пути.
+      final gated = GatedStt(stt);
+      h.stt = gated;
+      final switching = c.switchLanguage('uz-UZ');
+      await gated.reached;
+      c.cancel();
+      gated.release();
+      await switching;
+
+      final main = sessionOnDisk(video);
+      expect(main.lang, 'tr-TR', reason: 'основной осталась прежняя сессия');
+      expect(main.cues.first.ru, 'правка следователя');
+      expect(main.langConfidence, LanguageConfidence.high);
+      final store = SessionStore(fallbackDir: h.runtime.supportDir);
+      final uzbek = await store.loadBackup(video, 'uz-UZ', main.fingerprint);
+      expect(uzbek!.cues.firstWhere((cue) => cue.index == 2).status,
+          CueStatus.ok, reason: 'ответ на ушедший запрос оплачен — не теряем');
+
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(c.notice!.title, 'Смена языка отменена');
+
+      // Снова открыли то же видео — турецкий вариант, без запросов.
+      await c.goHome();
+      final again = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      h.stt = again;
+      await c.openVideo(video);
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+      expect(again.calls, isEmpty);
+    });
+
+    test('Отмена смены языка, пока ролик режется заново, — тоже назад',
+        () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      final work = Directory(h.runtime.workDirFor(video));
+      if (work.existsSync()) work.deleteSync(recursive: true);
+
+      c.addListener(() {
+        if (c.stage == AppStage.processing && !c.cancelRequested) c.cancel();
+      });
+      // На казахском проб нет: распознанного в заготовке нет вовсе.
+      await c.switchLanguage('kk-KZ');
+
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+      expect(sessionOnDisk(video).lang, 'tr-TR');
+      expect(c.notice!.title, 'Смена языка отменена');
     });
 
     // Дефект 5: в вопросе о языке русский вариант был подписан

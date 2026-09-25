@@ -833,16 +833,19 @@ class AppController extends ChangeNotifier {
       );
 
   /// [shown] — сессия, которую показывать во время работы (язык в шапке),
-  /// пока ядро не вернуло настоящую.
+  /// пока ядро не вернуло настоящую. [undoOnCancel] — сессия, к которой
+  /// «Отмена» возвращает целиком (платная смена языка), вместо экрана
+  /// «Обработка остановлена».
   Future<void> _runJob(
     String video, {
     required List<ProcessingStep> steps,
     required Session? shown,
     required Future<Session> Function(_Job job, Pipeline pipeline) body,
+    Session? undoOnCancel,
   }) {
     final job = _Job();
     _job = job;
-    final future = _execute(job, video, steps, shown, body);
+    final future = _execute(job, video, steps, shown, body, undoOnCancel);
     _jobFuture = future;
     return future;
   }
@@ -853,6 +856,7 @@ class AppController extends ChangeNotifier {
     List<ProcessingStep> steps,
     Session? shown,
     Future<Session> Function(_Job job, Pipeline pipeline) body,
+    Session? undoOnCancel,
   ) async {
     _videoPath = video;
     _session = shown;
@@ -878,18 +882,25 @@ class AppController extends ChangeNotifier {
     );
     try {
       final result = await body(job, pipeline);
-      _session = result;
-      if (job.cancelled) {
+      if (job.cancelled && undoOnCancel != null) {
+        await _undoSwitch(undoOnCancel, draft: result);
+      } else if (job.cancelled) {
         log.info('Обработка остановлена — открыть можно то, что успели');
+        _session = result;
         _partial = result;
         _stage = AppStage.cancelled;
       } else {
+        _session = result;
         await _rememberLanguage(result.lang);
         await _enterReview(result);
       }
     } on PipelineCancelledException {
-      log.info('Обработка остановлена, распознанного нет — открывать нечего');
-      _stage = AppStage.cancelled;
+      if (undoOnCancel != null) {
+        await _undoSwitch(undoOnCancel);
+      } else {
+        log.info('Обработка остановлена, распознанного нет — открывать нечего');
+        _stage = AppStage.cancelled;
+      }
     } catch (e, stack) {
       log.error('Обработка прервана: $e');
       log.debug('$stack');
@@ -1135,7 +1146,32 @@ class AppController extends ChangeNotifier {
           isCancelled: () => job.cancelled,
         );
       },
+      undoOnCancel: current,
     );
+  }
+
+  /// «Отмена» платной смены языка отменяет её целиком. Ядро к этому
+  /// времени уже записало основной сессией заготовку нового языка — и
+  /// повторное открытие видео распознавало бы на нём весь ролик, то есть
+  /// делало бы ровно то платное, от чего отказались. Поэтому основной
+  /// снова становится [previous] — прежний язык и реплики с правками, —
+  /// а то, что успели распознать на новом языке ([draft]), уже оплачено и
+  /// уходит в резервную копию этого языка: к нему можно вернуться через
+  /// «Не тот язык?».
+  Future<void> _undoSwitch(Session previous, {Session? draft}) async {
+    final store = _sessionStore!;
+    final kept = draft != null && draft.lang != previous.lang;
+    if (kept) await store.saveBackup(draft);
+    await store.save(previous);
+    log.info('Смена языка отменена: основной снова ${previous.lang}'
+        '${kept ? '; распознанное на ${draft.lang} — в резервной копии' : ''}');
+    _notice = UserError(
+      title: 'Смена языка отменена',
+      hint: 'Язык остался прежним: ${languageName(previous.lang)}.'
+          '${kept ? ' То, что успели распознать заново, сохранено — '
+              'вернуться к нему можно через «Не тот язык?».' : ''}',
+    );
+    await _enterReview(previous);
   }
 
   /// «Языки ваших записей» в настройках. Пустой набор не принимается:
