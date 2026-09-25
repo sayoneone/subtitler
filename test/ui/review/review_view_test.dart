@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:subtitler/app/app_controller.dart';
 import 'package:subtitler/app/settings.dart';
 import 'package:subtitler/app/user_error.dart';
@@ -10,6 +13,7 @@ import 'package:subtitler/ui/review/cue_status.dart';
 
 import '../../support/app_harness.dart';
 import '../../support/fake_preview_player.dart';
+import '../support.dart';
 import 'review_test_support.dart';
 
 const _video = '/видео/дело 1/clip.mp4';
@@ -707,6 +711,61 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('вшивать нечего'), findsOneWidget);
       await finishReview(tester, rig);
+    });
+
+    testWidgets('ошибка сохранения: «Сохранить журнал» в «Технических '
+        'деталях» сохраняет журнал без ключа и показывает файл', (
+      tester,
+    ) async {
+      // Подсказки ошибок сохранения просят прислать журнал, а кнопка есть
+      // только здесь. Её цепочка — экран → полоса сохранения → панель
+      // ошибки → детали; потеряй колбэк любое звено — кнопка молча
+      // пропала бы. Приложение целиком: уведомление «Журнал сохранён»
+      // показывает Scaffold оболочки.
+      final h = await started();
+      h.log.warn('Запрос с ключом $kTestApiKey не прошёл');
+      h.controller.debugEmulate(
+        stage: AppStage.review,
+        session: sampleSession(),
+        saveStatus: SaveStatus.failed,
+        saveError: describeError(
+          StateError('Не удалось вшить субтитры: выдуманный вывод ffmpeg'),
+          mask: h.log.mask,
+        ),
+      );
+      await pumpApp(tester, h.controller);
+      // Не pumpAndSettle: плеер-подделка оболочки видео не «загружает», и в
+      // кадре всё время крутится индикатор.
+      Future<void> settle() => tester.pump(const Duration(milliseconds: 500));
+
+      final details = find.text('Технические детали');
+      await tester.ensureVisible(details);
+      await settle();
+      await tester.tap(details);
+      await settle();
+      final saveLog = find.text('Сохранить журнал');
+      expect(saveLog, findsOneWidget);
+      await tester.ensureVisible(saveLog);
+      await settle();
+      await tester.tap(saveLog);
+      // Запись файла — настоящий ввод-вывод: ему нужно настоящее время.
+      for (var i = 0; i < 50 && h.revealed.isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
+
+      expect(h.revealed, hasLength(1));
+      final saved = File(h.revealed.single);
+      expect(p.isWithin(h.runtime.supportDir, saved.path), isTrue);
+      final text = saved.readAsStringSync();
+      expect(text, contains('Запуск приложения'));
+      expect(text, contains('***КЛЮЧ***'));
+      expect(text, isNot(contains(kTestApiKey)));
+      await tester.pump();
+      expect(find.textContaining('Журнал сохранён:'), findsOneWidget);
+      await closeApp(tester, h);
     });
 
     testWidgets('ошибка с «Повторить» — одна кнопка, а не две', (tester) async {
