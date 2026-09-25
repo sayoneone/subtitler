@@ -552,6 +552,56 @@ void main() {
         await expectNothingOpensLater(h, stt, second);
       });
 
+      // Замечание ревью: то же видео, брошенное на значок, пока открыт
+      // экран смены ключа, давало «Сначала закончите с текущим видео» с
+      // советом вернуться на главный экран и перетащить его ещё раз, хотя
+      // оно и так открыто. После «Отмены» сообщение висело над
+      // предпросмотром этого же видео.
+      test('открытом с предпросмотра, то же видео — без сообщения', () async {
+        final (h, stt, first, _) = await twoVideos();
+        final c = h.controller;
+        await c.openVideo(first);
+        final paid = stt.calls.length;
+
+        c.changeKey();
+        c.receiveFromAnotherLaunch(first);
+        expect(c.stage, AppStage.needsKey);
+        expect(c.notice, isNull);
+        expect(h.log.asText(), contains('Это видео уже открыто'));
+
+        c.cancelKeyChange();
+        expect(c.stage, AppStage.review);
+        expect(c.videoPath, first);
+        expect(c.notice, isNull);
+        expect(c.isBusy, isFalse);
+        expect(stt.calls.length - paid, 0, reason: 'платные запросы');
+      });
+
+      test('открытом с экрана ошибки этого видео, то же видео — без '
+          'сообщения, после ключа обработка продолжается', () async {
+        final h = await started();
+        final c = h.controller;
+        h.stt = FakeStt(const [])
+          ..failCalls = 1
+          ..failWith = const AuthException(
+              statusCode: 401, message: 'Ключ неверный или отозван');
+        final video = h.copyVideo(probeClip);
+        await c.openVideo(video);
+        expect(c.stage, AppStage.failed);
+
+        c.changeKey();
+        c.receiveFromAnotherLaunch(video);
+        expect(c.notice, isNull);
+        expect(h.log.asText(), contains('Это видео уже открыто'));
+
+        h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+        expect(await c.submitKey('AQVN-vydumannyj-novyj-klyuch-0010'), isTrue);
+        await c.jobDone;
+        expect(c.stage, AppStage.review);
+        expect(c.videoPath, video);
+        expect(c.notice, isNull);
+      });
+
       test('открытом с главного экрана — сообщение о смене ключа', () async {
         final (h, stt, _, second) = await twoVideos();
         final c = h.controller;

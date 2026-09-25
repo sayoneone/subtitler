@@ -331,7 +331,8 @@ class AppController extends ChangeNotifier {
   /// очередь: видео, которое само открылось бы позже, посреди правки
   /// чужого ролика или при следующей смене ключа, только запутает, а его
   /// распознавание оплатится без спроса. Человек закончит и перетащит его
-  /// ещё раз.
+  /// ещё раз. Если бросили то же видео, что уже открыто (и когда ключ
+  /// меняют с его экрана), — только запись в журнал.
   void receiveFromAnotherLaunch(String? video) {
     if (video == null) {
       log.info('Программу запустили ещё раз — выводим окно вперёд');
@@ -365,10 +366,17 @@ class AppController extends ChangeNotifier {
         return;
       default:
     }
+    // То же видео уже открыто: идёт его обработка, на экране его
+    // предпросмотр или ключ меняют с экрана этого видео (предпросмотр,
+    // «Обработка остановлена», ошибка) — туда и вернутся. Сообщение
+    // «вернитесь на главный экран и перетащите его ещё раз» было бы
+    // неправдой.
     final current = _videoPath;
     if (current != null &&
         p.equals(current, video) &&
-        (_stage == AppStage.processing || _stage == AppStage.review)) {
+        (_stage == AppStage.processing ||
+            _stage == AppStage.review ||
+            (_stage == AppStage.needsKey && _stageBeforeKeyChange != null))) {
       log.info('Это видео уже открыто');
       return;
     }
