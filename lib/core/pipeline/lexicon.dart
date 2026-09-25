@@ -99,17 +99,34 @@ const Map<String, String> _skeletonLetters = {
 /// Нужен, чтобы узнать турецкое слово в узбекской записи и наоборот:
 /// «ishte» у узбекской модели и «işte» у турецкой дают один скелет «iste».
 /// То же для казахского слова, записанного русской моделью.
-String skeleton(String word) {
+String skeleton(String word) => _skeleton(word, softG: 'g', hush: 's');
+
+/// Скелет для поиска окончаний: то же, но мягкое ğ (узбекское gʻ, в новом
+/// алфавите тоже ğ) и шипящее ş (узбекское sh) остаются отдельными буквами.
+///
+/// - В турецком ğ не звучит как «г» — «sokağa» произносится «сокаа», а
+///   узбекский дательный -ga, причастие -gan и -dagi всегда с твёрдым «г».
+///   Слитые в одну букву, они узнавались в турецких sokağa, doğan, dağı.
+/// - Турецкое -mış всегда с «ш», а узбекский вопрос -misiz — с «с»:
+///   yaxshimisiz «как поживаете?» совпадал с турецким -mışız.
+String _suffixSkeleton(String word) =>
+    _skeleton(word, softG: 'ğ', hush: 'ş');
+
+String _skeleton(String word, {required String softG, required String hush}) {
   final s = word
       .replaceAll('oʻ', 'o')
-      .replaceAll('gʻ', 'g')
+      .replaceAll('gʻ', softG)
       .replaceAll(kApostrophe, '')
-      .replaceAll('sh', 's')
+      .replaceAll('sh', hush)
       .replaceAll('ch', 'c');
   final out = StringBuffer();
   for (final rune in s.runes) {
     final ch = String.fromCharCode(rune);
-    out.write(_skeletonLetters[ch] ?? ch);
+    out.write(switch (ch) {
+      'ğ' => softG,
+      'ş' => hush,
+      _ => _skeletonLetters[ch] ?? ch,
+    });
   }
   return out.toString();
 }
@@ -129,23 +146,42 @@ class Lexicon {
   /// турецкое -iyor.
   final List<RegExp> suffixes;
 
-  Lexicon._(this.lang, this.words, this.suffixes)
+  /// Обычные слова этого языка, которые оканчиваются как слова соседа:
+  /// узбекские turmush и kelajak — как турецкие -mış и -acak. У модели
+  /// этого языка такое слово не признак чужой речи.
+  final List<RegExp> lookalikes;
+
+  Lexicon._(this.lang, this.words, this.suffixes, this.lookalikes)
       : skeletons = words.map(skeleton).toSet();
 
-  factory Lexicon._build(String lang, String raw, List<String> suffixes) {
+  factory Lexicon._build(
+    String lang,
+    String raw,
+    List<String> suffixes, [
+    List<String> lookalikes = const [],
+  ]) {
     final words = tokenize(raw).map((w) => lexKey(w, lang)).toSet();
     return Lexicon._(
       lang,
       words,
       [for (final s in suffixes) RegExp(s, unicode: true)],
+      [for (final s in lookalikes) RegExp(s, unicode: true)],
     );
   }
 
+  /// Есть ли у слова [word] (в записи любой модели) окончание этого языка.
   /// Окончания ищутся только у слов от четырёх букв: у коротких
   /// совпадение почти всегда случайно.
-  bool hasSuffix(String wordSkeleton) =>
-      wordSkeleton.runes.length >= 4 &&
-      suffixes.any((r) => r.hasMatch(wordSkeleton));
+  bool hasSuffix(String word) {
+    final s = _suffixSkeleton(word);
+    return s.runes.length >= 4 && suffixes.any((r) => r.hasMatch(s));
+  }
+
+  /// Слово этого языка, похожее окончанием на соседа (см. [lookalikes]).
+  bool isLookalike(String word) {
+    final s = _suffixSkeleton(word);
+    return lookalikes.any((r) => r.hasMatch(s));
+  }
 }
 
 /// Словарь для [lang] или `null`, если его нет. Без словаря язык
@@ -162,11 +198,13 @@ final Map<String, Lexicon> _lexicons = {
     'tr-TR',
     '$_turkish ${_sharedTurkishUzbek.map((pair) => pair.$1).join(' ')}',
     _turkishSuffixes,
+    _turkishLookalikes,
   ),
   'uz-UZ': Lexicon._build(
     'uz-UZ',
     '$_uzbek ${_sharedTurkishUzbek.map((pair) => pair.$2).join(' ')}',
     _uzbekSuffixes,
+    _uzbekLookalikes,
   ),
   'ru-RU': Lexicon._build('ru-RU', _russian, _russianSuffixes),
   'kk-KZ': Lexicon._build('kk-KZ', _kazakh, _kazakhSuffixes),
@@ -191,7 +229,7 @@ kendi kendim kendin kendisi kendine
 bu bunu buna bunda bundan bunun bunlar bunları bunlara
 şu şunu şuna şunda şundan şunun şunlar
 burası burada buradan buraya orası orada oradan oraya şurada şuraya
-böyle şöyle öyle
+böyle şöyle öyle onca
 ne neyi neye neden nerede nereye nereden nerde nasıl niye niçin
 kim kimi kime kimin kimse hangi hangisi kaç kaçta
 mı mi mu mü mısın misin musun müsün mıyım miyim
@@ -216,17 +254,27 @@ geldi gitti dedi diye bak bakın gel git geliyor gidiyor biliyorum bilmiyorum
 istiyorum istemiyorum lazım gerek yapıyor yaptı söyle söyledi
 ''';
 
-/// Окончания в «скелетной» записи (ı→i, ü→u, ş→s, ç→c, ğ→g).
+/// Окончания в «скелетной» записи (ı→i, ü→u, ç→c; ğ и ş остаются).
 const List<String> _turkishSuffixes = [
   r'[iu]yor', // настоящее время: gidiyorum, geliyor
-  r'm[iu]s(t[iu]m|t[iu]n|t[iu]k|t[iu]|[iu]m|s[iu]n|[iu]z|l[ae]r)?$', // -mış
-  r'[ae]c[ae][kg]', // будущее время: gideceğiz, alacak
+  r'm[iu]ş(t[iu]m|t[iu]n|t[iu]k|t[iu]|[iu]m|s[iu]n|[iu]z|l[ae]r)?$', // -mış
+  // Будущее время: gideceğiz, alacak. Гласные по сингармонизму одинаковые —
+  // это отсекает узбекское kechagi «вчерашний».
+  r'(aca|ece)[kgğ]',
   r'[^aeiou][iu]p$', // деепричастие -ıp/-ip: gidip, alıp
   r'd[iu]kt[ae]n$', // -dıktan sonra: geldikten
   r'[^g][iu]nc[ae]$', // -ınca/-ince: bitince, gelince
   r'rken$', // -irken: çalışırken, giderken
   r'm[ae]k$', // неопределённая форма: gitmek, almak
   r's[iu]n[iu]z$', // 2-е лицо мн. ч.: gelsiniz
+];
+
+/// Турецкие слова, похожие на узбекское -aman «я …-ю»: kocaman «огромный»,
+/// kahraman «герой», yaman «ловкий». Отглагольное -man после основы на -a
+/// (anlaman «чтобы ты понял») от узбекского -aman (olaman «возьму») по
+/// буквам не отличить — оно оставлено.
+const List<String> _turkishLookalikes = [
+  r'^(koc|kahr|y)aman$',
 ];
 
 // ---------------------------------------------------------------------------
@@ -246,7 +294,7 @@ bu buni bunga bunda bundan buning bular
 shu shuni shunga shunda shundan shuning shular
 o'sha o'shani o'shanga o'shanda ana mana ushbu
 bunday shunday unday qanday
-nima nimani nimaga nimada nimadan nega nechta necha qancha
+nima nimani nimaga nimada nimadan nega nechta necha qancha uncha
 qayer qayerda qayerga qayerdan qachon
 kim kimni kimga kimning kimdan qaysi mi
 va yoki ammo lekin biroq chunki agar ham hamda yo go'yo balki holbuki
@@ -268,12 +316,15 @@ bilmayman xohlayman qilib qildi qiladi boradi keladi qilyapti ketyapti
 kelyapti boramiz
 ''';
 
-/// Окончания в «скелетной» записи (sh→s, ch→c, q→k, x→h, oʻ→o, gʻ→g).
+/// Окончания в «скелетной» записи (ch→c, q→k, x→h, oʻ→o; gʻ → ğ, sh → ş).
 const List<String> _uzbekSuffixes = [
   r'..yap(ti|man|san|miz|siz|tilar)$', // настоящее: kelyapti, ketyapman
   r'mokda$', // -moqda: bormoqda
   r'ning$', // родительный падеж: shuning, uyning
-  r'[^n](ga|ka)$', // дательный падеж: bozorga, ishga
+  r'[^n]ga$', // дательный падеж: bozorga, ishga (но не турецкое sokağa)
+  // Дательный -ka/-qa бывает только после k и q: ko'kka, qishloqqa. Иначе
+  // под него попадали турецкие arka, şaka, halka, fabrika.
+  r'kka$',
   r'gan(i|ni|da|dan|ga|lar|imiz|ingiz|mi)?$', // причастие: kelgan, qilgan
   r'[ae]man$', // 1-е лицо ед. ч.: boraman, kelaman
   r'[iu]b$', // деепричастие -ib: borib, kelib, olib
@@ -281,6 +332,20 @@ const List<String> _uzbekSuffixes = [
   r'mok$', // неопределённая форма -moq: bormoq
   r'dagi$', // -dagi: uydagi
   r'(iz|an|di|ng)mi$', // слитная частица -mi: keldingizmi
+  r'mi(siz|san)$', // вопрос: yaxshimisiz, tinchmisan
+];
+
+/// Узбекские слова, похожие на турецкие окончания: на -mish (turmush
+/// «жизнь», o'tmish «прошлое», kumush «серебро») — как турецкое -mış; на
+/// -ajak (kelajak «будущее», bo'lajak «будущий») — как -acak; ko'mak
+/// «помощь» — как -mak; ixtiyor «воля» — как -iyor. Узбекское diyor
+/// «край» сюда нарочно не внесено: турецкое diyor «говорит» — одно из
+/// самых частых слов.
+const List<String> _uzbekLookalikes = [
+  r'm[iu]ş(l[ae]r)?$',
+  r'^(kel|bol)acak',
+  r'^komak',
+  r'^ihtiyor',
 ];
 
 // ---------------------------------------------------------------------------
@@ -328,6 +393,8 @@ const List<(String, String)> _sharedTurkishUzbek = [
   ('oy', 'oy'), // тур. «голос», узб. «месяц»
   ('öz', "o'z"), // свой, сам
   ('yana', 'yana'), // тур. «в сторону», узб. «ещё»
+  ('bunca', 'buncha'), // столько (иначе — как турецкое -ınca)
+  ('şunca', 'shuncha'), // столько
 ];
 
 // ---------------------------------------------------------------------------

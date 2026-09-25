@@ -170,9 +170,11 @@ LanguageFeatures languageFeatures(
       foreign += weight;
       continue;
     }
-    if (lexicon != null && lexicon.hasSuffix(skel)) {
+    if (lexicon != null && lexicon.hasSuffix(word)) {
       ownSuffix += weight;
-    } else if (rivals.any((rival) => lexiconFor(rival)!.hasSuffix(skel))) {
+    } else if (lexicon != null && lexicon.isLookalike(word)) {
+      // Обычное слово своего языка, лишь похожее на соседа, — ничьё.
+    } else if (rivals.any((rival) => lexiconFor(rival)!.hasSuffix(word))) {
       foreignSuffix += weight;
     }
   }

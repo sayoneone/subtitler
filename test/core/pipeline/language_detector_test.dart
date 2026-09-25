@@ -78,6 +78,37 @@ void main() {
       expect(f.score, lessThan(languageFeatures('chiqiyorum', 'uz-UZ').score));
     });
 
+    test('Обычные узбекские слова не выдаются за турецкие окончания', () {
+      // Вопрос на -misiz, слова на -mish и -ajak, shuncha/buncha, kechagi
+      // по скелету похожи на турецкие -mışız, -mış, -acak, -ınca.
+      const words = [
+        'yaxshimisiz', 'tinchmisiz', 'bormisiz', 'tayyormisiz', 'turmush', //
+        "o'tmish", 'kumush', 'qilmish', 'kelajak', 'kelajakda', "bo'lajak",
+        'kechagi', 'shuncha', 'buncha', "ko'mak", 'ixtiyori',
+      ];
+      for (final word in words) {
+        final f = languageFeatures(word, 'uz-UZ', against: ['tr-TR']);
+        expect(f.foreignSuffix, 0, reason: word);
+        expect(f.foreign, 0, reason: word);
+      }
+    });
+
+    test('Турецкий дательный на -ğa и слова на -ka не выдаются за узбекские',
+        () {
+      // По скелету ğ = g, и sokağa совпадала с узбекским дательным -ga,
+      // doğan — с причастием -gan, arka и şaka — с дательным -ka. -mışız
+      // не должно совпасть с узбекским вопросом -misiz.
+      const words = [
+        'sokağa', 'çocuğa', 'sağa', 'yatağa', 'ayağa', 'dağa', 'bardağa', //
+        'dağı', 'doğan', 'soğan', 'arka', 'şaka', 'halka', 'fabrika', 'yaka',
+        'kocaman', 'kahraman', 'gelmişiz',
+      ];
+      for (final word in words) {
+        final f = languageFeatures(word, 'tr-TR', against: ['uz-UZ']);
+        expect(f.foreignSuffix, 0, reason: word);
+      }
+    });
+
     test('Без соседей по письменности чужих слов не бывает', () {
       // Русская модель пишет кириллицей — латинская калька с ней несравнима.
       final f = languageFeatures('yarin sabah', 'uz-UZ', against: ['ru-RU']);
@@ -186,6 +217,36 @@ void main() {
           "ha tamom o'z qardoshim yarin sari xaliyi ana yo'ldagi dukkona "
               'goturajak',
           'yo shart degil yillardan bu yana oy bermaga qara arabayla gidariz',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+    });
+
+    test('Узбекские приветствия на -misiz: турецкий не выбирается', () {
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': [
+          'yaxshimisiz tinchmisiz ishlaringiz yaxshimi charchamadingizmi',
+          'uydagilar tinchmi bolalar yaxshimi tayyormisiz shuncha kutdik',
+        ],
+        'tr-TR': [
+          'yahşimisiz tinçmisiz işlaringiz yahşimi çarçamadingizmi',
+          'uydagilar tinçmi balalar yahşimi tayyormısız şunça kuttuk',
+        ],
+      }));
+      expect(verdict.lang, 'uz-UZ', reason: verdict.describe());
+    });
+
+    test('Турецкая речь с дательным на -ğa: узбекский не выбирается', () {
+      // ğ в турецком не звучит: «sokağa» слышится как «сокаа», и узбекская
+      // модель пишет кальку без «г».
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'çocuğa söyledim sokağa çıkmasın arka kapıyı kilitledim',
+          'şaka değil kocaman bir köpek bahçede yatağa girdi',
+        ],
+        'uz-UZ': [
+          'chojua soyladim soqaa chiqmasin arqa qapini kilitladim',
+          "shaqa degil qo'jaman bir ko'pak bog'chada yataa girdi",
         ],
       }));
       expect(verdict.lang, 'tr-TR', reason: verdict.describe());

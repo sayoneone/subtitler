@@ -106,6 +106,25 @@ void main() {
       expect(uz.hasSuffix(skeleton('parasız')), isFalse);
     });
 
+    test('Узбекский вопрос на -misiz — узбекское окончание, а не турецкое',
+        () {
+      final tr = lexiconFor('tr-TR')!;
+      final uz = lexiconFor('uz-UZ')!;
+      for (final word in ['yaxshimisiz', 'tinchmisiz', 'yaxshimisan']) {
+        expect(uz.hasSuffix(word), isTrue, reason: word);
+        expect(tr.hasSuffix(word), isFalse, reason: word);
+      }
+    });
+
+    test('Узбекский дательный узнаётся после гласной, k, q и gʻ', () {
+      final uz = lexiconFor('uz-UZ')!;
+      for (final word in [
+        'bozorga', 'onaga', "ko'kka", 'qishloqqa', "tog'ga", 'toğga', //
+      ]) {
+        expect(uz.hasSuffix(word), isTrue, reason: word);
+      }
+    });
+
     test('Казахские окончания не срабатывают на обычных русских словах', () {
       final kk = lexiconFor('kk-KZ')!;
       for (final word in ['один', 'книга', 'машинка', 'доллар']) {
