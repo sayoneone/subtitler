@@ -701,6 +701,8 @@ void main() {
       expect(translate.calls, 0);
       expect(c.canOpenPartial, isFalse, reason: 'открывать нечего');
       expect(File('$video.subtitler.json').existsSync(), isFalse);
+      expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse,
+          reason: 'без сессии нарезка не пригодится — звук дела не хранится');
 
       await c.goHome();
       expect(c.stage, AppStage.home);
@@ -839,6 +841,8 @@ void main() {
       expect(File('$video.subtitler.json').existsSync(), isFalse,
           reason: 'сессия с языком наугад закрепила бы неверный язык');
       expect(c.settings.lastLanguage, isNull);
+      expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse,
+          reason: '«Повторить» всё равно режет ролик заново');
 
       // Сеть вернулась.
       h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);

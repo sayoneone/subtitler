@@ -839,6 +839,65 @@ void main() {
       expect(Directory('$workDir/segments').listSync(), hasLength(3));
     });
 
+    // Пока язык не определён, сессия не пишется, а без сессии определение
+    // языка режет ролик заново. Нарезку, оставшуюся после отмены или
+    // отказа сети, не использует никто — а это звук из материалов дела.
+    group('язык нового видео не определён — нарезки нет', () {
+      Future<String> detect(
+        SpeechKitClient stt, {
+        FfmpegRunner? ffmpeg,
+        bool Function()? isCancelled,
+        required Matcher throws,
+      }) async {
+        final copy = freshCopy(probeVideo);
+        final workDir = '${tmp.path}/work${workCounter++}';
+        await expectLater(
+          build(stt, FakeTranslate(), workDir: workDir, ffmpeg: ffmpeg)
+              .detectLanguage(
+            videoPath: copy,
+            candidates: const ['tr-TR', 'uz-UZ'],
+            sleep: (_) async {},
+            isCancelled: isCancelled,
+          ),
+          throwsA(throws),
+        );
+        expect(File('$copy.subtitler.json').existsSync(), isFalse);
+        expect(Directory('$workDir/segments').existsSync(), isFalse);
+        expect(Directory(workDir).existsSync(), isFalse,
+            reason: 'имя рабочей папки повторяет имя видео');
+        return workDir;
+      }
+
+      test('«Отмена» во время проб', () async {
+        final stt = FakeStt(const ['bir', 'iki', 'üç', 'dört']);
+        await detect(stt,
+            isCancelled: () => stt.calls >= 1,
+            throws: isA<PipelineCancelledException>());
+        expect(stt.calls, 1);
+      });
+
+      test('«Отмена» во время нарезки', () async {
+        final steps = _StepRunner(runner);
+        final stt = FakeStt(const []);
+        await detect(stt,
+            ffmpeg: steps,
+            isCancelled: () => steps.count('cut') >= 1,
+            throws: isA<PipelineCancelledException>());
+        expect(steps.count('cut'), 1, reason: 'один сегмент успел нарезаться');
+        expect(stt.calls, 0);
+      });
+
+      test('нет сети на пробах', () async {
+        final stt = FakeStt(const [])
+          ..failCalls = 1000
+          ..failWith =
+              const TransientException(message: 'Нет связи с сервисом');
+        await detect(stt,
+            throws: isA<TransientException>()
+                .having((e) => e.statusCode, 'statusCode', isNull));
+      });
+    });
+
     test('готовая сессия открывается, не оставляя пустой рабочей папки',
         () async {
       final copy = freshCopy(video);

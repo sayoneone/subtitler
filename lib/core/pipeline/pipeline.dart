@@ -232,7 +232,7 @@ class Pipeline {
       sleep: sleep,
       cancelled: cancelled,
     );
-    if (!session.cues.any(_needsRecognition)) _removeSegments();
+    if (!session.cues.any(_needsRecognition)) _removeSegments('Всё распознано');
     session = await _translateAll(
       session: session,
       report: report,
@@ -274,7 +274,9 @@ class Pipeline {
   /// По той же причине ничего не записывается, если сервис не ответил:
   /// [kNoNetworkStreak] проб подряд без ответа или ни одна проба первого
   /// этапа не получила текста из-за временной ошибки — тогда бросается
-  /// эта [TransientException].
+  /// эта [TransientException]. Если сессия так и не записана (отмена, нет
+  /// сети, любой сбой), нарезка удаляется сразу: без сессии следующий
+  /// вызов всё равно режет ролик заново.
   /// Этап [PipelineStage.done] здесь не сообщается — обработка после
   /// определения языка только начинается.
   Future<LanguageProbe> detectLanguage({
@@ -310,6 +312,43 @@ class Pipeline {
       return LanguageProbe(session: saved);
     }
 
+    try {
+      return await _detectFresh(
+        videoPath: videoPath,
+        langs: langs,
+        duration: duration,
+        fingerprint: fingerprint,
+        previousLang: previousLang,
+        probeSegments: probeSegments,
+        extraProbeSegments: extraProbeSegments,
+        report: report,
+        sleep: sleep,
+        cancelled: cancelled,
+      );
+    } catch (_) {
+      // Сессия не записана, а без неё следующее определение языка режет
+      // ролик заново: нарезку («Отмена», нет сети, любой сбой) не
+      // использует никто. Это звук из материалов дела — удаляем сразу,
+      // а не через неделю.
+      _removeSegments('Язык не определён');
+      rethrow;
+    }
+  }
+
+  /// [detectLanguage] для видео без сохранённой сессии: нарезка, пробы,
+  /// выбор языка и запись сессии.
+  Future<LanguageProbe> _detectFresh({
+    required String videoPath,
+    required List<String> langs,
+    required double duration,
+    required SourceFingerprint fingerprint,
+    required String? previousLang,
+    required int probeSegments,
+    required int extraProbeSegments,
+    required void Function(PipelineProgress) report,
+    required Future<void> Function(Duration)? sleep,
+    required bool Function() cancelled,
+  }) async {
     final base = await _prepare(
       videoPath: videoPath,
       lang: langs.first,
@@ -573,14 +612,14 @@ class Pipeline {
   /// удаляются). Нужна она, только пока есть что распознавать; как только
   /// распознано всё, удаляется вместе с рабочей папкой, если та опустела.
   /// Понадобится снова (смена языка) — ролик нарежется заново, а уже
-  /// распознанное не потеряется: оно в файле сессии.
-  void _removeSegments() {
+  /// распознанное не потеряется: оно в файле сессии. [why] — для журнала.
+  void _removeSegments(String why) {
     try {
       final segments = Directory(_segmentsDir);
       if (segments.existsSync()) segments.deleteSync(recursive: true);
       final work = Directory(workDir);
       if (work.existsSync() && work.listSync().isEmpty) work.deleteSync();
-      log.debug('Всё распознано — нарезка удалена');
+      log.debug('$why — нарезка удалена');
     } on FileSystemException catch (e) {
       log.warn('Не удалось удалить нарезку: $e');
     }
