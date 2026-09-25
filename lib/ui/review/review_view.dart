@@ -60,10 +60,6 @@ class _ReviewViewState extends State<ReviewView> {
 
   final _list = GlobalKey<CueListState>();
 
-  /// Языки, варианты которых человек правил на этом экране: при смене
-  /// языка правки остаются в резервной копии, меню об этом предупреждает.
-  final Set<String> _editedLanguages = {};
-
   /// Название языка, на который человек попросил переключиться, — для
   /// полосы «Переключаем язык…».
   String? _switchingTo;
@@ -188,12 +184,6 @@ class _ReviewViewState extends State<ReviewView> {
   }
 
   // --------------------------------------------------------------- правки
-
-  void _edit(int cueIndex, String text) {
-    final lang = c.language;
-    if (lang != null) _editedLanguages.add(lang);
-    c.updateTranslation(cueIndex, text);
-  }
 
   Future<void> _switchLanguage(String code) async {
     if (c.isBusy) return;
@@ -418,7 +408,10 @@ class _ReviewViewState extends State<ReviewView> {
           languageTitle: title,
           choices: choices,
           allChoices: c.allLanguageChoices,
-          hasEdits: _editedLanguages.contains(session.lang),
+          // Все правки варианта, а не только сделанные на этом экране:
+          // правки прошлого открытия видео и сделанные до платной смены
+          // языка (экран после неё создаётся заново) тоже в сессии.
+          hasEdits: session.cues.any((cue) => cue.edited),
           enabled: canSwitch,
           onSwitch: _switchLanguage,
           onNextToCheck: _nextToCheck,
@@ -561,7 +554,7 @@ class _ReviewViewState extends State<ReviewView> {
     locked: _locked,
     onSeek: _seekTo,
     onFocusCue: _focusCue,
-    onEdit: _edit,
+    onEdit: c.updateTranslation,
   );
 
   Widget _saveBar() => SaveBar(

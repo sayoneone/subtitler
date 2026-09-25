@@ -624,6 +624,38 @@ void main() {
       await tester.pumpAndSettle();
       await finishReview(tester, rig);
     });
+
+    // Замечание ревью: предупреждение учитывало только правки, сделанные
+    // на этом экране. Правки прошлого открытия видео и сделанные до
+    // платной смены языка (после неё экран создаётся заново) лежат в
+    // сессии с пометкой edited, но меню о них молчало.
+    testWidgets('правки из прошлого открытия видео — меню тоже '
+        'предупреждает', (tester) async {
+      final s = sampleSession();
+      final rig = await pumpReview(
+        tester,
+        session: s.copyWith(
+          cues: [
+            s.cues.first.copyWith(ru: 'выдуманная правка', edited: true),
+            ...s.cues.skip(1),
+          ],
+        ),
+      );
+
+      await tester.tap(find.text('Не тот язык?'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text(
+          'Ваши правки останутся в варианте «турецкий» — к нему '
+          'можно вернуться через это же меню',
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+      await finishReview(tester, rig);
+    });
   });
 
   group('Сохранение', () {
