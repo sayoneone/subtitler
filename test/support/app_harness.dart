@@ -68,6 +68,9 @@ class AppHarness {
 
   late final AppController controller;
 
+  /// Подделки окружения, из которых собран [controller].
+  late final AppServices services;
+
   AppHarness._({
     required this.root,
     required this._ownsRoot,
@@ -116,6 +119,8 @@ class AppHarness {
 /// [storedKey] — ключ, «сохранённый» в хранилище с прошлого запуска
 /// (`null` — ключа нет, `init()` приведёт на [AppStage.needsKey]).
 /// [ffmpeg] `null` — ffmpeg «не найден» ([AppStage.broken]).
+/// [build] — собрать контроллер самому (как это делает main()), иначе он
+/// собирается из параметров выше.
 /// [root] — общая папка для имитации перезапуска: второй контроллер с тем
 /// же [root] видит сессии, настройки ([persistentSettings]) и рабочие
 /// файлы первого.
@@ -133,6 +138,7 @@ AppHarness makeTestController({
   Duration editSaveDelay = const Duration(hours: 1),
   Duration longVideoThreshold = kLongVideoThreshold,
   String? openOnStart,
+  AppController Function(AppServices services, DebugLog log)? build,
 }) {
   final dir = root ?? Directory.systemTemp.createTempSync('app_harness_');
   final support = p.join(dir.path, 'support');
@@ -207,13 +213,15 @@ AppHarness makeTestController({
     isMobile: isMobile,
   );
 
-  harness.controller = AppController(
-    services: services,
-    log: log,
-    editSaveDelay: editSaveDelay,
-    longVideoThreshold: longVideoThreshold,
-    openOnStart: openOnStart,
-  );
+  harness.services = services;
+  harness.controller = build?.call(services, log) ??
+      AppController(
+        services: services,
+        log: log,
+        editSaveDelay: editSaveDelay,
+        longVideoThreshold: longVideoThreshold,
+        openOnStart: openOnStart,
+      );
   return harness;
 }
 

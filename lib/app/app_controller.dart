@@ -1675,6 +1675,8 @@ class AppController extends ChangeNotifier {
         ffmpeg: _ffmpeg,
         keyStore: _keyStore,
         log: log,
+        speechKit: services.speechKit,
+        translate: services.translate,
       );
 
   // ================================================================ тесты

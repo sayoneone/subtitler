@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'app/app_controller.dart';
 import 'app/diagnostics.dart';
 import 'app/launch_args.dart';
+import 'app/services.dart';
 import 'core/logging.dart';
 import 'ui/app_shell.dart';
 import 'ui/player/preview_player.dart';
@@ -19,14 +20,27 @@ void main(List<String> args) {
   initPreviewPlayers(log: log);
   // Настоящие сервисы (AppServices.real). Отладочный стенд открывается из
   // меню и берёт у контроллера уже готовые папки, ffmpeg и хранилище.
-  // Видео, перетащенное на значок программы, приходит аргументом запуска.
-  final controller =
-      AppController(log: log, openOnStart: videoArgument(args));
+  final controller = launchController(args, log: log);
   // Бросили видео на значок, когда окно уже открыто: второй копии нет,
   // запускалка передаёт путь этой.
   unawaited(listenForOtherLaunches(controller.receiveFromAnotherLaunch));
   runApp(SubtitlerApp(controller: controller));
 }
+
+/// Контроллер программы, запущенной с аргументами [args]: видео,
+/// перетащенное на значок или ярлык, приходит аргументом запуска и
+/// открывается само. Отдельной функцией — чтобы связку «аргумент → видео»
+/// проверял тест: раньше main() аргументы вовсе не читал.
+AppController launchController(
+  List<String> args, {
+  DebugLog? log,
+  AppServices? services,
+}) =>
+    AppController(
+      log: log,
+      services: services,
+      openOnStart: videoArgument(args),
+    );
 
 class SubtitlerApp extends StatelessWidget {
   final AppController controller;

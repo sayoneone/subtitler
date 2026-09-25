@@ -17,6 +17,7 @@ import 'package:subtitler/core/languages.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/session_store.dart';
 import 'package:subtitler/core/srt.dart';
+import 'package:subtitler/main.dart';
 
 import '../support/app_harness.dart';
 import '../support/fakes.dart';
@@ -268,6 +269,47 @@ void main() {
       await waitForStage(h.controller, AppStage.review);
       expect(h.controller.videoPath, video);
       expect(h.log.asText(), contains('Видео передано при запуске'));
+    });
+
+    // main() собирает контроллер через launchController: связка «аргумент
+    // запуска → видео» проверяется на той же функции, что работает в
+    // программе.
+    AppHarness launchedByMain(List<String> args) {
+      final h = makeTestController(
+          build: (services, log) =>
+              launchController(args, services: services, log: log));
+      addTearDown(h.dispose);
+      h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      return h;
+    }
+
+    test('main: видео из аргументов запуска открывается само', () async {
+      final dir = Directory.systemTemp.createTempSync('main_args_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final video = p.join(dir.path, 'запись 2.mp4');
+      File(probeClip).copySync(video);
+      final h = launchedByMain(['--enable-software-rendering', video]);
+
+      await h.controller.init();
+      await waitForStage(h.controller, AppStage.review);
+      expect(h.controller.videoPath, video);
+    });
+
+    test('main: мусорный аргумент — «Это не видео», главный экран', () async {
+      final dir = Directory.systemTemp.createTempSync('main_args_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final notVideo = p.join(dir.path, 'заметка.txt');
+      File(notVideo).writeAsStringSync('это не видео');
+      final h = launchedByMain([notVideo]);
+      final c = h.controller;
+
+      await c.init();
+      for (var i = 0; i < 200 && c.notice == null; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      }
+      expect(c.notice?.title, 'Это не видео или файл повреждён');
+      expect(c.stage, AppStage.home);
+      expect(c.videoPath, isNull);
     });
 
     test('Без ключа видео ждёт ключа и открывается сразу после него',

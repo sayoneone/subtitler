@@ -39,12 +39,24 @@ class DebugController extends ChangeNotifier {
   /// хранилище ключа. Повторный AppRuntime.prepare переоткрыл бы журнал
   /// с нуля (и отложил бы журнал запуска как «прошлый») и заново
   /// распаковал шрифт.
+  ///
+  /// [speechKit] и [translate] — клиенты Яндекса для ключа; из приложения
+  /// приходят те же, что у него (AppServices), в тестах — подделки.
   DebugController({
     this.runtime,
     this.ffmpeg,
     this._keyStore,
     DebugLog? log,
-  }) : log = log ?? DebugLog.instance;
+    SpeechKitClient Function(String apiKey)? speechKit,
+    TranslateClient Function(String apiKey)? translate,
+  })  : log = log ?? DebugLog.instance,
+        _speechKit = speechKit ??
+            ((key) => SpeechKitClient(dio: newDio(), apiKey: key)),
+        _translate = translate ??
+            ((key) => TranslateClient(dio: newDio(), apiKey: key));
+
+  final SpeechKitClient Function(String apiKey) _speechKit;
+  final TranslateClient Function(String apiKey) _translate;
 
   /// Удалось ли вообще пользоваться хранилищем ключа.
   bool? storageWorks;
@@ -287,10 +299,9 @@ class DebugController extends ChangeNotifier {
     notifyListeners();
 
     final key = value.trim();
-    final dio = newDio();
     final result = await KeyChecker(
-      translate: (k) => TranslateClient(dio: dio, apiKey: k),
-      speechKit: (k) => SpeechKitClient(dio: dio, apiKey: k),
+      translate: _translate,
+      speechKit: _speechKit,
       log: log,
       sttLang: lang,
     ).check(key, onProgress: (r) {
@@ -331,13 +342,12 @@ class DebugController extends ChangeNotifier {
     final video = videoPath!;
     final work = runtime?.workDirFor(video) ??
         Directory.systemTemp.createTempSync('subtitler_').path;
-    final dio = newDio();
 
     try {
       final pipeline = Pipeline(
         runner: _runner(),
-        stt: SpeechKitClient(dio: dio, apiKey: apiKey),
-        translate: TranslateClient(dio: dio, apiKey: apiKey),
+        stt: _speechKit(apiKey),
+        translate: _translate(apiKey),
         store: SessionStore(fallbackDir: runtime?.supportDir ?? work),
         workDir: work,
         log: log,
@@ -400,13 +410,12 @@ class DebugController extends ChangeNotifier {
     final video = videoPath!;
     final work = runtime?.workDirFor(video) ??
         Directory.systemTemp.createTempSync('subtitler_').path;
-    final dio = newDio();
 
     try {
       final probe = await Pipeline(
         runner: _runner(),
-        stt: SpeechKitClient(dio: dio, apiKey: apiKey),
-        translate: TranslateClient(dio: dio, apiKey: apiKey),
+        stt: _speechKit(apiKey),
+        translate: _translate(apiKey),
         store: SessionStore(fallbackDir: runtime?.supportDir ?? work),
         workDir: work,
         log: log,
