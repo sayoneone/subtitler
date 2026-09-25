@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'app/debug_controller.dart';
+import 'app/diagnostics.dart';
+import 'core/logging.dart';
 import 'ui/debug_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  installErrorLogging(DebugLog.instance);
   runApp(SubtitlerApp(controller: DebugController()));
 }
 
