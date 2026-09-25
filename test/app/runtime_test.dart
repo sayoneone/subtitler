@@ -154,4 +154,29 @@ void main() {
       await removeStaleWorkDirs(p.join(root.path, 'нет такой'), now: now);
     });
   });
+
+  group('Имя рабочей папки видео', () {
+    const runtime = AppRuntime(
+      supportDir: 'support',
+      fontsDir: 'fonts',
+      workDir: 'work',
+      outputDir: 'output',
+    );
+
+    // Эталоны посчитаны заранее отдельной программой (FNV-1a по кодовым
+    // единицам UTF-16). Имя обязано совпасть с ними и после обновления
+    // Dart: String.hashCode этого не обещает, и тогда уже нарезанное
+    // пришлось бы резать заново.
+    test('строится стабильным хешем пути (FNV-1a), а не String.hashCode', () {
+      expect(p.basename(runtime.workDirFor('/дела/дело 12/VID_0001.mp4')),
+          'VID_0001_56ea54bf');
+      expect(p.basename(runtime.workDirFor('/дела/дело 12/запись звонка.mp4')),
+          'запись_звонка_b57381cf');
+    });
+
+    test('одинаковые имена из разных дел — разные папки', () {
+      expect(p.basename(runtime.workDirFor('/дела/дело 13/VID_0001.mp4')),
+          'VID_0001_08b08d3a');
+    });
+  });
 }
