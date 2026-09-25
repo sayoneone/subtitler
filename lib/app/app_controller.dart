@@ -152,6 +152,29 @@ class SaveResult {
   String get dir => p.dirname(videoPath);
 }
 
+/// Что уже сделано на языке из меню «Не тот язык?» (по его резервной
+/// копии): от этого зависит, что будет при выборе и за что придётся
+/// заплатить.
+enum LanguageCopy {
+  /// Копии нет или в ней ничего не распознано: ролик распознаётся на этом
+  /// языке заново, платно. Оплаченные пробы ([LanguageChoice.probedCues])
+  /// повторно не распознаются.
+  none,
+
+  /// Распознана часть реплик: обработку на этом языке остановили. При
+  /// выборе остальные реплики распознаются, и всё переводится — платно;
+  /// уже распознанные повторно не оплачиваются.
+  started,
+
+  /// Распознано всё, но перевод не закончен: например, «Отмену» нажали,
+  /// пока шёл последний запрос распознавания. При выборе ролик только
+  /// переводится — перевод тоже платный.
+  recognized,
+
+  /// Распознано и переведено всё: переключение бесплатное и мгновенное.
+  ready,
+}
+
 /// Пункт меню «Не тот язык?».
 class LanguageChoice {
   final String code;
@@ -159,12 +182,14 @@ class LanguageChoice {
   /// По-русски, из таблицы языков: «узбекский».
   final String name;
 
-  /// На этом языке ролик уже распознан целиком (есть полная резервная
-  /// копия): переключение бесплатное и мгновенное. Недоделанная копия
-  /// (обработку на этом языке остановили) готовой не считается: при
-  /// выборе оставшиеся реплики распознаются платно, уже распознанные —
-  /// нет.
-  final bool ready;
+  /// Что на этом языке уже есть. Недоделанная копия (обработку на этом
+  /// языке остановили) готовой не считается: при выборе она доделывается
+  /// платно, но уже сделанное повторно не оплачивается.
+  final LanguageCopy copy;
+
+  /// На этом языке ролик уже распознан и переведён целиком (есть полная
+  /// резервная копия): переключение бесплатное и мгновенное.
+  bool get ready => copy == LanguageCopy.ready;
 
   /// Сколько реплик на этом языке уже оплачено пробами — их при смене
   /// языка повторно не распознаём.
@@ -176,13 +201,14 @@ class LanguageChoice {
   const LanguageChoice({
     required this.code,
     required this.name,
-    required this.ready,
+    required this.copy,
     required this.probedCues,
     required this.isRunnerUp,
   });
 
   @override
-  String toString() => '$code${ready ? ' (готово)' : ''}';
+  String toString() =>
+      '$code${copy == LanguageCopy.none ? '' : ' (${copy.name})'}';
 }
 
 /// Ролик длиннее этого — сначала вопрос «Продолжить?» (§5).
@@ -536,7 +562,8 @@ class AppController extends ChangeNotifier {
 
   // --------------------------------------------------------- смена языка
 
-  Set<String> _backupLangs = {};
+  /// Резервные копии языков, в которых что-то уже сделано: язык → что.
+  Map<String, LanguageCopy> _copies = {};
   bool _switching = false;
 
   // ----------------------------------------------------------- сохранение
@@ -998,7 +1025,7 @@ class AppController extends ChangeNotifier {
   ) async {
     _videoPath = video;
     _session = shown;
-    _backupLangs = {};
+    _copies = {};
     _srtFiles = null;
     _stage = AppStage.processing;
     _steps = steps;
@@ -1128,7 +1155,7 @@ class AppController extends ChangeNotifier {
     _error = null;
     _notice = null;
     _longVideoQuestion = null;
-    _backupLangs = {};
+    _copies = {};
     _srtFiles = null;
     _resetSave();
   }
@@ -1165,23 +1192,38 @@ class AppController extends ChangeNotifier {
   /// JSON прежний путь, и запись ушла бы в чужую копию вещдока.
   String _videoFor(Session session) => _videoPath ?? session.videoPath;
 
-  /// Готовыми ([LanguageChoice.ready]) считаются только полные копии:
+  /// Готовыми ([LanguageCopy.ready]) считаются только полные копии:
   /// недоделанная (обработку на том языке остановили) при выборе
-  /// доделывается платно, и «готово — переключить» было бы неправдой.
+  /// доделывается платно, и «готово — переключить» было бы неправдой. Но
+  /// и «распознать заново» было бы неправдой: распознанное в ней оплачено
+  /// и повторно не распознаётся (см. [_copyOf]).
   Future<void> _refreshBackups() async {
     final session = _session;
     if (session == null) return;
     try {
       final backups = await _sessionStore!
           .loadBackups(_videoFor(session), session.fingerprint);
-      _backupLangs = {
-        for (final backup in backups.entries)
-          if (_isComplete(backup.value)) backup.key,
+      _copies = {
+        for (final MapEntry(key: lang, value: backup) in backups.entries)
+          if (_copyOf(backup) case final copy when copy != LanguageCopy.none)
+            lang: copy,
       };
     } catch (e) {
       log.warn('Не удалось проверить резервные копии: $e');
-      _backupLangs = {};
+      _copies = {};
     }
+  }
+
+  /// Что сделано в резервной копии языка. Распознанной считается реплика
+  /// с текстом или «речи нет»: нераспознанные (`pending`) и сбойные
+  /// (`failed`) при выборе языка уйдут в распознавание.
+  static LanguageCopy _copyOf(Session backup) {
+    bool recognized(Cue cue) =>
+        cue.status == CueStatus.ok || cue.status == CueStatus.empty;
+    if (_isComplete(backup)) return LanguageCopy.ready;
+    if (backup.cues.every(recognized)) return LanguageCopy.recognized;
+    if (backup.cues.any(recognized)) return LanguageCopy.started;
+    return LanguageCopy.none;
   }
 
   Future<void> _rememberLanguage(String lang) async {
@@ -1193,7 +1235,10 @@ class AppController extends ChangeNotifier {
   // ================================================================ язык
 
   /// Меню «Не тот язык?»: второй язык первым, затем остальные языки из
-  /// настроек, затем языки, на которых ролик уже распознан.
+  /// настроек, затем языки, на которых ролик уже распознан или начат.
+  /// Начатый тоже здесь: после «Отмены» платной смены языка сообщение
+  /// зовёт вернуться к нему через это меню, даже если язык выбирали в
+  /// «Другой язык…».
   List<LanguageChoice> get languageChoices {
     final session = _session;
     if (session == null) return const [];
@@ -1206,7 +1251,7 @@ class AppController extends ChangeNotifier {
 
     add(session.langRunnerUp);
     _settings.detectionCandidates.forEach(add);
-    kLanguageCodes.where(_backupLangs.contains).forEach(add);
+    kLanguageCodes.where(_copies.containsKey).forEach(add);
     return [for (final code in codes) _choice(session, code)];
   }
 
@@ -1223,7 +1268,7 @@ class AppController extends ChangeNotifier {
   LanguageChoice _choice(Session session, String code) => LanguageChoice(
         code: code,
         name: languageName(code),
-        ready: _backupLangs.contains(code),
+        copy: _copies[code] ?? LanguageCopy.none,
         probedCues: session.probeTexts[code]?.length ?? 0,
         isRunnerUp: code == session.langRunnerUp,
       );
@@ -1753,6 +1798,7 @@ class AppController extends ChangeNotifier {
     UserError? saveError,
     KeyCheckResult? keyCheck,
     Set<String>? backupLanguages,
+    Map<String, LanguageCopy>? languageCopies,
     bool? keyStorageWorks,
     bool? hasKey,
   }) {
@@ -1773,7 +1819,11 @@ class AppController extends ChangeNotifier {
     if (saveResult != null) _saveResult = saveResult;
     if (saveError != null) _saveError = saveError;
     if (keyCheck != null) _keyCheck = keyCheck;
-    if (backupLanguages != null) _backupLangs = {...backupLanguages};
+    // [backupLanguages] — готовые копии, [languageCopies] — любые.
+    if (backupLanguages != null) {
+      _copies = {for (final code in backupLanguages) code: LanguageCopy.ready};
+    }
+    if (languageCopies != null) _copies = {..._copies, ...languageCopies};
     if (keyStorageWorks != null) _keyStorageWorks = keyStorageWorks;
     if (hasKey != null) _apiKey = hasKey ? 'эмуляция-ключа' : null;
     _notify();

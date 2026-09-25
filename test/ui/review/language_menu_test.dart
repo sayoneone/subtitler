@@ -11,11 +11,12 @@ LanguageChoice _choice(
   String code,
   String name, {
   bool ready = false,
+  LanguageCopy? copy,
   bool runnerUp = false,
 }) => LanguageChoice(
   code: code,
   name: name,
-  ready: ready,
+  copy: copy ?? (ready ? LanguageCopy.ready : LanguageCopy.none),
   probedCues: 0,
   isRunnerUp: runnerUp,
 );
@@ -55,6 +56,32 @@ void main() {
       );
       expect(find.text('уже готово — бесплатно'), findsOneWidget);
       expect(find.text('оплачивается'), findsNothing);
+    });
+
+    // Замечание ревью P5: начатое на втором языке оплачено и не пропало —
+    // «оплачивается» без оговорки звучало бы как «распознать заново».
+    testWidgets('второй язык начат или распознан — платно только оставшееся',
+        (tester) async {
+      for (final (copy, mark) in [
+        (LanguageCopy.started, 'уже начато — оплачивается только оставшееся'),
+        (
+          LanguageCopy.recognized,
+          'уже распознано — оплачивается только перевод',
+        ),
+      ]) {
+        await _pump(
+          tester,
+          LanguageDoubtPlate(
+            languageTitle: 'турецкий',
+            confidence: LanguageConfidence.low,
+            runnerUp: _choice('uz-UZ', 'узбекский', copy: copy, runnerUp: true),
+            enabled: true,
+            onSwitch: (_) {},
+          ),
+        );
+        expect(find.text(mark), findsOneWidget, reason: '$copy');
+        expect(find.text('оплачивается'), findsNothing, reason: '$copy');
+      }
     });
 
     testWidgets('пока идёт работа, кнопка не нажимается', (tester) async {
@@ -143,6 +170,70 @@ void main() {
       await tester.pumpAndSettle();
       expect(switched, ['he-IL']);
       expect(find.byType(SimpleDialog), findsNothing);
+    });
+
+    // Замечание ревью P5: язык, на котором обработку остановили, был
+    // подписан «распознать заново — оплачивается», как язык, на котором
+    // нет ничего.
+    testWidgets('начатый и распознанный без перевода языки подписаны честно',
+        (tester) async {
+      final choices = [
+        _choice('uz-UZ', 'узбекский', copy: LanguageCopy.started),
+        _choice('kk-KZ', 'казахский', copy: LanguageCopy.recognized),
+        _choice('ru-RU', 'русский'),
+      ];
+      await _pump(
+        tester,
+        ReviewHeader(
+          total: 5,
+          toCheck: 0,
+          languageTitle: 'турецкий',
+          choices: choices,
+          allChoices: choices,
+          hasEdits: false,
+          enabled: true,
+          onSwitch: (_) {},
+        ),
+      );
+      await tester.tap(find.text('Не тот язык?'));
+      await tester.pumpAndSettle();
+
+      Finder mark(String language, String text) => find.descendant(
+        of: find.widgetWithText(PopupMenuItem<String>, language),
+        matching: find.text(text),
+      );
+      expect(
+        mark('узбекский', 'начато — доделать, оплачивается только оставшееся'),
+        findsOneWidget,
+      );
+      expect(
+        mark(
+          'казахский',
+          'распознано — осталось перевести, оплачивается только перевод',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        mark('русский', 'распознать заново — оплачивается'),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Другой язык…'));
+      await tester.pumpAndSettle();
+      Finder short(String code, String text) => find.descendant(
+        of: find.byKey(ValueKey('other-language-$code')),
+        matching: find.text(text),
+      );
+      expect(short('uz-UZ', 'начато'), findsOneWidget);
+      expect(short('kk-KZ', 'распознано'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('other-language-ru-RU')),
+          matching: find.byType(Text),
+        ),
+        findsOneWidget,
+        reason: 'у языка без копии — только название',
+      );
     });
 
     testWidgets('пока идёт работа, меню не открывается', (tester) async {

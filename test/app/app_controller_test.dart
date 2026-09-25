@@ -18,6 +18,7 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/session_store.dart';
 import 'package:subtitler/core/srt.dart';
 import 'package:subtitler/main.dart';
+import 'package:subtitler/ui/review/review_header.dart';
 
 import '../support/app_harness.dart';
 import '../support/fakes.dart';
@@ -1924,6 +1925,16 @@ void main() {
       expect(kazakh.ready, isFalse,
           reason: 'ролик на казахском распознан не целиком — «готово» '
               'было бы неправдой');
+      // Сообщение об отмене зовёт вернуться к начатому через «Не тот
+      // язык?» — там оно и есть, с честной подписью, хотя казахского нет
+      // среди языков из настроек.
+      expect(c.notice?.hint, contains('«Не тот язык?»'));
+      final inMenu = c.languageChoices.where((l) => l.code == 'kk-KZ');
+      expect(inMenu, hasLength(1));
+      expect(languageChoiceMark(inMenu.single),
+          'начато — доделать, оплачивается только оставшееся');
+      expect(languageChoiceMark(kazakh),
+          'начато — доделать, оплачивается только оставшееся');
 
       // Снова казахский: остальные реплики распознаются, уже распознанная
       // повторно не оплачивается.
@@ -1968,6 +1979,9 @@ void main() {
       final choice = c.languageChoices.firstWhere((l) => l.code == 'uz-UZ');
       expect(choice.ready, isFalse,
           reason: '«готово — переключить» было бы неправдой');
+      // И не «распознать заново»: распознанное оплачено и не пропало.
+      expect(languageChoiceMark(choice),
+          'распознано — осталось перевести, оплачивается только перевод');
 
       final again = ScriptedStt(h.runtime.workDir, turkishSpeech);
       final translate = FakeTranslate();
@@ -2008,6 +2022,16 @@ void main() {
           isFalse);
       expect(c.allLanguageChoices.firstWhere((l) => l.code == 'uz-UZ').ready,
           isFalse);
+      // Замечание ревью P5: сообщение об отмене говорит, что распознанное
+      // сохранено и к нему можно вернуться, а меню подписывало этот язык
+      // «распознать заново — оплачивается» — как будто оплаченное пропало.
+      for (final choice in [
+        c.languageChoices.firstWhere((l) => l.code == 'uz-UZ'),
+        c.allLanguageChoices.firstWhere((l) => l.code == 'uz-UZ'),
+      ]) {
+        expect(languageChoiceMark(choice),
+            'начато — доделать, оплачивается только оставшееся');
+      }
     });
 
     // Раньше основной сессией после «Отмены» оставалась заготовка нового

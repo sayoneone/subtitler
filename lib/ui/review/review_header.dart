@@ -4,9 +4,25 @@ import '../../app/app_controller.dart';
 import '../../core/models.dart';
 import 'review_plate.dart';
 
-/// Пометка пункта меню «Не тот язык?»: бесплатно ли переключение.
-String languageChoiceMark(LanguageChoice choice) =>
-    choice.ready ? 'готово — переключить' : 'распознать заново — оплачивается';
+/// Пометка пункта меню «Не тот язык?»: что на этом языке уже есть и за что
+/// придётся заплатить. Начатое после «Отмены» подписано как начатое, а не
+/// «распознать заново»: иначе человек решит, что оплаченное пропало.
+String languageChoiceMark(LanguageChoice choice) => switch (choice.copy) {
+      LanguageCopy.ready => 'готово — переключить',
+      LanguageCopy.recognized =>
+        'распознано — осталось перевести, оплачивается только перевод',
+      LanguageCopy.started =>
+        'начато — доделать, оплачивается только оставшееся',
+      LanguageCopy.none => 'распознать заново — оплачивается',
+    };
+
+/// Короткая пометка в «Другой язык…»; у языка без копии — пусто.
+String? _shortMark(LanguageCopy copy) => switch (copy) {
+      LanguageCopy.ready => 'готово',
+      LanguageCopy.recognized => 'распознано',
+      LanguageCopy.started => 'начато',
+      LanguageCopy.none => null,
+    };
 
 /// Значение пункта «Другой язык…» в меню — не код языка.
 const String _otherLanguage = '…';
@@ -193,7 +209,9 @@ class OtherLanguageDialog extends StatelessWidget {
           child: Text(
             'Ролик будет распознан заново на выбранном языке — это '
             'оплачивается. Где написано «готово», ролик на этом языке уже '
-            'распознан: переключение бесплатное.',
+            'распознан и переведён: переключение бесплатное. Где '
+            '«распознано» или «начато», сделанное повторно не '
+            'оплачивается — только оставшееся.',
             style: theme.textTheme.bodySmall,
           ),
         ),
@@ -204,11 +222,13 @@ class OtherLanguageDialog extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(child: Text(choice.name)),
-                if (choice.ready)
+                if (_shortMark(choice.copy) case final mark?)
                   Text(
-                    'готово',
+                    mark,
                     style: theme.textTheme.bodySmall?.copyWith(
-                      color: Colors.green.shade800,
+                      color: choice.ready
+                          ? Colors.green.shade800
+                          : theme.colorScheme.onSurfaceVariant,
                     ),
                   ),
               ],
@@ -270,7 +290,14 @@ class LanguageDoubtPlate extends StatelessWidget {
           ),
         if (second != null)
           Text(
-            second.ready ? 'уже готово — бесплатно' : 'оплачивается',
+            switch (second.copy) {
+              LanguageCopy.ready => 'уже готово — бесплатно',
+              LanguageCopy.recognized =>
+                'уже распознано — оплачивается только перевод',
+              LanguageCopy.started =>
+                'уже начато — оплачивается только оставшееся',
+              LanguageCopy.none => 'оплачивается',
+            },
             style: theme.textTheme.bodySmall,
           ),
       ],

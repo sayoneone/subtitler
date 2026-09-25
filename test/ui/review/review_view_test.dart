@@ -10,14 +10,32 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/ui/player/video_preview.dart';
 import 'package:subtitler/ui/review/cue_list.dart';
 import 'package:subtitler/ui/review/cue_status.dart';
+import 'package:subtitler/ui/review/review_view.dart';
 
 import '../../support/app_harness.dart';
 import '../../support/fake_preview_player.dart';
+import '../../support/fakes.dart';
+import '../../support/media.dart';
 import '../support.dart';
 import 'review_test_support.dart';
 
 const _video = '/видео/дело 1/clip.mp4';
 const _burned = '/видео/дело 1/clip_ru.mp4';
+
+/// Выдуманная турецкая речь на репликах пробного ролика, узбекская модель
+/// пишет кальку: язык выбирается уверенно (как в app_controller_test).
+const _turkishSpeech = {
+  'tr-TR': {
+    1: 'yarın sabah erkenden çarşıya gideceğiz çünkü evde ekmek yok',
+    2: 'tamam',
+    3: 'akşam eve geç geleceğim sen beni bekleme tamam mı',
+  },
+  'uz-UZ': {
+    1: 'yarin sabah erkandan charshiga gidajakmiz chunki evda ekmak yoq',
+    2: 'tamom',
+    3: 'aqsham eve gech gelajagim sen beni beklama tamom mi',
+  },
+};
 
 SaveResult _saved({String video = _burned, bool inFallback = false}) =>
     SaveResult(
@@ -510,6 +528,79 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(SimpleDialog), findsNothing);
       await finishReview(tester, rig);
+    });
+
+    // Замечание ревью P5: после «Отмены» платной смены языка распознанное
+    // на новом языке сохраняется, и сообщение зовёт вернуться к нему через
+    // «Не тот язык?». А в меню у этого языка было написано «распознать
+    // заново — оплачивается»: следователь решал, что оплаченное пропало.
+    testWidgets('после отмены платной смены языка язык в меню подписан '
+        '«начато»', (tester) async {
+      await tester.binding.setSurfaceSize(kWideWindow);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      // Настоящие ffmpeg и диск — в настоящем времени, как в
+      // processing_view_test: всё, что ждёт обработку, создаётся там же.
+      final h = (await tester.runAsync(() async => makeTestController()))!;
+      final rig = ReviewRig(h);
+      final c = h.controller;
+      await tester.runAsync(() async {
+        await c.init();
+        h.stt = ScriptedStt(h.runtime.workDir, _turkishSpeech);
+        final dir = Directory(p.join(h.root.path, 'дело'))..createSync();
+        final video = await makeProbeClip(p.join(dir.path, 'clip.mp4'));
+        await c.openVideo(video);
+        // «Не тот язык? → узбекский» и сразу «Отмена».
+        void cancelAtOnce() {
+          if (c.stage == AppStage.processing && !c.cancelRequested) {
+            c.cancel();
+          }
+        }
+
+        c.addListener(cancelAtOnce);
+        await c.switchLanguage('uz-UZ');
+        c.removeListener(cancelAtOnce);
+      });
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+      expect(c.notice?.title, 'Смена языка отменена');
+
+      await tester.pumpWidget(
+        MaterialApp(home: ReviewView(controller: c, playerFactory: rig.create)),
+      );
+      await tester.tap(find.text('Не тот язык?'));
+      await tester.pumpAndSettle();
+      final uzbek = find.widgetWithText(PopupMenuItem<String>, 'узбекский');
+      expect(
+        find.descendant(
+          of: uzbek,
+          matching: find.text(
+            'начато — доделать, оплачивается только оставшееся',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: uzbek,
+          matching: find.text('распознать заново — оплачивается'),
+        ),
+        findsNothing,
+      );
+
+      await tester.tap(find.text('Другой язык…'));
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('other-language-uz-UZ')),
+          matching: find.text('начато'),
+        ),
+        findsOneWidget,
+      );
+      await tester.tapAt(const Offset(4, 4));
+      await tester.pumpAndSettle();
+
+      await tester.pumpWidget(const SizedBox());
+      await tester.runAsync(h.dispose);
     });
 
     testWidgets('есть правки — меню предупреждает, что они останутся', (
