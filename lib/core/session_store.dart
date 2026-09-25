@@ -368,14 +368,21 @@ class SessionStore {
   }
 
   /// Сессия из [file] или `null` с причиной, если файл не читается как
-  /// сессия: обрезан (FormatException из jsonDecode), схема новее нашей
-  /// (FormatException из [Session.fromJson]), не те типы полей
+  /// сессия: обрезан (FormatException из jsonDecode или, если обрыв
+  /// пришёлся на середину многобайтовой буквы, из utf8.decode), схема
+  /// новее нашей (FormatException из [Session.fromJson]), не те типы полей
   /// (TypeError), неизвестное значение статуса или пометки
   /// (ArgumentError). Ошибка чтения самого файла ([FileSystemException])
   /// уходит выше.
+  ///
+  /// Байты декодируются здесь, а не через `readAsString`: тот ошибку
+  /// декодирования превращает в FileSystemException (dart-sdk
+  /// lib/io/file_impl.dart, `_tryDecode`), и файл, оборванный посреди
+  /// кириллицы или ş/ğ/ı, не откладывался бы, а ронял открытие видео.
   static Future<(Session?, Object?)> _read(File file) async {
+    final bytes = await file.readAsBytes();
     try {
-      final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
+      final json = jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
       return (Session.fromJson(json), null);
     } on FormatException catch (e) {
       return (null, e);

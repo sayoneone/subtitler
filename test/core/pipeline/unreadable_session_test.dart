@@ -39,13 +39,17 @@ void main() {
         ],
       ).toJson());
 
+  /// Содержимое файла: текст (пишется в UTF-8) или уже готовые байты.
+  List<int> bytesOf(Object content) =>
+      content is String ? utf8.encode(content) : content as List<int>;
+
   Future<(LanguageProbe, DebugLog, Directory)> detect(
-      String Function(String video) unreadable) async {
+      Object Function(String video) unreadable) async {
     final folder = Directory(p.join(tmp.path, 'дело${counter++}'))
       ..createSync();
     final video = p.join(folder.path, 'clip.mp4');
     File(probeClip).copySync(video);
-    File('$video.subtitler.json').writeAsStringSync(unreadable(video));
+    File('$video.subtitler.json').writeAsBytesSync(bytesOf(unreadable(video)));
 
     final log = DebugLog();
     final workDir = p.join(tmp.path, 'work${counter++}');
@@ -77,12 +81,12 @@ void main() {
           .hasMatch(p.basename(f.path)))
       .toList();
 
-  void expectKept(Directory folder, String original, DebugLog log,
+  void expectKept(Directory folder, Object original, DebugLog log,
       LanguageProbe probe) {
     final aside = setAside(folder);
     expect(aside, hasLength(1),
         reason: 'нечитаемый файл не затирается, а откладывается');
-    expect(aside.single.readAsStringSync(), original,
+    expect(aside.single.readAsBytesSync(), bytesOf(original),
         reason: 'содержимое сохранено как было — его можно открыть '
             'новой версией или восстановить');
     expect(
@@ -115,6 +119,23 @@ void main() {
     final (probe, log, folder) = await detect((video) {
       final full = sessionJson(video);
       return original = full.substring(0, full.length ~/ 2);
+    });
+    expectKept(folder, original, log, probe);
+  });
+
+  // Замечание ревью P3: запись, оборванная посреди многобайтовой буквы
+  // (кириллица перевода, ş/ğ/ı оригинала), — уже не UTF-8.
+  // File.readAsString на ней бросает не FormatException, а
+  // FileSystemException (dart-sdk lib/io/file_impl.dart, _tryDecode), и
+  // видео не открывалось вовсе: «Повторить» давал ту же ошибку, пока файл
+  // не удалят руками.
+  test('Запись, оборванная посреди буквы, тоже откладывается', () async {
+    late List<int> original;
+    final (probe, log, folder) = await detect((video) {
+      final full = sessionJson(video);
+      final before = utf8.encode(full.substring(0, full.indexOf('правка')));
+      // Первый из двух байтов буквы «п».
+      return original = utf8.encode(full).sublist(0, before.length + 1);
     });
     expectKept(folder, original, log, probe);
   });
