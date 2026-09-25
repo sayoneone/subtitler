@@ -158,6 +158,70 @@ jobs:
           }
           Compress-Archive -Path dist/* -DestinationPath subtitler-windows-x64.zip
 
+      # Каждая DLL, которую импортируют exe и DLL из папки, должна лежать
+      # рядом с ними или входить в саму Windows, иначе на ПК следователя
+      # программа не запустится. Список обязательных файлов выше этого не
+      # ловит: он знает только названные файлы. Запуск exe здесь тоже не
+      # поймал бы: на раннере стоят Visual C++ и отладочный CRT, которых у
+      # следователя нет. Импорты читает dumpbin из Visual Studio раннера.
+      - name: Проверить импорты DLL
+        shell: pwsh
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vs = & $vswhere -latest -products * `
+                  -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+                  -property installationPath
+          if (-not $vs) { throw "Не найдена Visual Studio с инструментами C++" }
+          $dumpbin = Get-ChildItem (Join-Path $vs 'VC\Tools\MSVC') -Recurse -Filter dumpbin.exe |
+                     Where-Object { $_.FullName -match '\\Hostx64\\x64\\' } |
+                     Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $dumpbin) { throw "Не найден dumpbin.exe" }
+
+          # zlib.dll приезжает с ANGLE плеера. Её никто не загружает: ни одна
+          # DLL папки её не импортирует и не называет по имени. Сама она собрана
+          # с отладочным CRT (ucrtbased.dll, VCRUNTIME140D.dll) и на чистой
+          # машине не загрузилась бы. Её импорты не проверяем, пока её
+          # не импортирует кто-то ещё; тогда проверка ниже упадёт.
+          $unused = @('zlib.dll')
+
+          $pes = Get-ChildItem dist -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }
+          $deps = @{}
+          $importers = @{}
+          foreach ($pe in $pes) {
+            $out = & $dumpbin.FullName /nologo /dependents $pe.FullName
+            if ($LASTEXITCODE -ne 0) { throw "dumpbin не прочитал $($pe.FullName)" }
+            $deps[$pe.FullName] = @($out | ForEach-Object { $_.Trim() } |
+                                    Where-Object { $_ -match '^[\w.\-]+\.dll$' })
+            foreach ($dep in $deps[$pe.FullName]) { $importers[$dep.ToLower()] = $pe.Name }
+          }
+
+          $missing = New-Object System.Collections.Generic.List[string]
+          foreach ($pe in $pes) {
+            if ($unused -contains $pe.Name.ToLower() -and -not $importers.ContainsKey($pe.Name.ToLower())) {
+              Write-Host "Пропущена $($pe.Name): её никто не загружает"
+              continue
+            }
+            foreach ($dep in $deps[$pe.FullName]) {
+              # Рядом с тем, кто её импортирует: там её найдёт загрузчик Windows.
+              if (Test-Path (Join-Path $pe.DirectoryName $dep)) { continue }
+              # В System32 раннера есть то, чего у следователя нет: библиотеки
+              # Visual C++ (msvcp140_1, concrt140…) и отладочный CRT, а в N- и
+              # LTSC-редакциях нет Media Foundation. Такие DLL должны лежать в папке.
+              $name = $dep.ToLower()
+              $notInWindows = $name -match '^(msvcp1|vcruntime1|concrt1|vcomp1|mfc1|ucrtbased|mfplat|mfreadwrite|mfplay|mf|evr)[\w.\-]*\.dll$'
+              $inWindows = $name -match '^(api-ms-win-|ext-ms-)' -or
+                           (Test-Path (Join-Path "$env:WINDIR\System32" $dep))
+              if ($notInWindows -or -not $inWindows) {
+                $missing.Add("$dep (её импортирует $($pe.Name))")
+              }
+            }
+          }
+          Write-Host "Проверено файлов: $($pes.Count)"
+          if ($missing.Count) {
+            throw "Не хватает DLL — на ПК следователя программа не запустится: $(($missing | Sort-Object -Unique) -join '; ')"
+          }
+          Write-Host "Все импортируемые DLL лежат в папке или входят в Windows"
+
       - uses: actions/upload-artifact@v4
         with:
           name: subtitler-windows-x64
