@@ -44,6 +44,67 @@ class FakeStt implements SpeechKitClient {
   String get baseUrl => 'fake';
 }
 
+/// Подставной STT для определения языка: ответ зависит от пары
+/// (язык, реплика), а не от порядка вызовов — порядок проб меняется
+/// вместе с алгоритмом, и тест не должен на него опираться.
+///
+/// Какая это реплика, узнаём по байтам: сравниваем тело запроса с файлами
+/// сегментов в рабочей папке.
+class ScriptedStt implements SpeechKitClient {
+  final String workDir;
+  final Map<String, Map<int, String>> texts;
+
+  /// Пары (язык, реплика), на которых сервис отвечает ошибкой всегда —
+  /// то есть и на все повторы.
+  final Set<(String, int)> failing;
+  final List<(String, int)> calls = [];
+
+  ScriptedStt(this.workDir, this.texts, {this.failing = const {}});
+
+  @override
+  Future<String> recognize({
+    required List<int> oggBytes,
+    required String lang,
+  }) async {
+    final cue = _cueIndexOf(oggBytes);
+    calls.add((lang, cue));
+    if (failing.contains((lang, cue))) {
+      throw const TransientException(statusCode: 500, message: 'boom');
+    }
+    return texts[lang]?[cue] ?? '';
+  }
+
+  int _cueIndexOf(List<int> bytes) {
+    final dir = Directory('$workDir${Platform.pathSeparator}segments');
+    for (final file in dir.listSync().whereType<File>()) {
+      final content = file.readAsBytesSync();
+      if (content.length != bytes.length) continue;
+      var same = true;
+      for (var i = 0; i < content.length; i++) {
+        if (content[i] != bytes[i]) {
+          same = false;
+          break;
+        }
+      }
+      if (same) {
+        return int.parse(
+            RegExp(r'seg_(\d+)\.ogg$').firstMatch(file.path)!.group(1)!);
+      }
+    }
+    throw StateError('Запрос не совпал ни с одним сегментом');
+  }
+
+  List<(String, int)> callsFor(String lang) =>
+      calls.where((c) => c.$1 == lang).toList();
+
+  @override
+  Dio get dio => throw UnimplementedError();
+  @override
+  String get apiKey => 'fake';
+  @override
+  String get baseUrl => 'fake';
+}
+
 class FakeTranslate implements TranslateClient {
   int calls = 0;
   List<String> lastTexts = const [];
@@ -69,8 +130,10 @@ class FakeTranslate implements TranslateClient {
 void main() {
   late Directory tmp;
   late String video;
+  late String probeVideo;
   final runner = ProcessFfmpegRunner.fromEnvironment();
   var workCounter = 0;
+  var copyCounter = 0;
 
   setUpAll(() async {
     tmp = Directory.systemTemp.createTempSync('pipeline_test_');
@@ -86,12 +149,35 @@ void main() {
       video,
     ]);
     expect(made.ok, isTrue, reason: made.log);
+
+    // Для определения языка нужны реплики разной длины, чтобы выбор проб
+    // был однозначным: 4 с (реплика 1), 2 с (реплика 2), 3.5 с (реплика 3).
+    probeVideo = '${tmp.path}/probe.mp4';
+    final madeProbe = await runner.run([
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=black:s=320x240:d=15',
+      '-f', 'lavfi',
+      '-i', 'aevalsrc=0.5*sin(440*2*PI*t)*(between(t\\,0\\,4)'
+          '+between(t\\,6\\,8)+between(t\\,10\\,13.5)):d=15',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest',
+      probeVideo,
+    ]);
+    expect(madeProbe.ok, isTrue, reason: madeProbe.log);
   });
   tearDownAll(() => tmp.deleteSync(recursive: true));
 
+  /// Копия ролика под новым именем: рядом с ней ещё нет файла сессии,
+  /// оставленного другими тестами.
+  String freshCopy(String source) {
+    final copy = '${tmp.path}/copy${copyCounter++}.mp4';
+    File(source).copySync(copy);
+    return copy;
+  }
+
   /// Каждому прогону — своя рабочая папка, кроме случаев, когда тест
   /// намеренно продолжает предыдущий (тогда путь передаётся явно).
-  Pipeline build(FakeStt stt, FakeTranslate tr, {String? workDir}) => Pipeline(
+  Pipeline build(SpeechKitClient stt, FakeTranslate tr, {String? workDir}) =>
+      Pipeline(
         runner: runner,
         stt: stt,
         translate: tr,
@@ -241,5 +327,46 @@ void main() {
     expect(loaded, isNotNull);
     expect(loaded!.cues.length, session.cues.length);
     expect(loaded.silenceThreshold, isNotEmpty);
+  });
+
+  group('Определение языка', () {
+    /// Конвейер и подставной STT с общей рабочей папкой: по ней STT узнаёт,
+    /// какую реплику ему прислали.
+    (Pipeline, ScriptedStt) scripted(
+      Map<String, Map<int, String>> texts, {
+      Set<(String, int)> failing = const {},
+    }) {
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = ScriptedStt(workDir, texts, failing: failing);
+      return (build(stt, FakeTranslate(), workDir: workDir), stt);
+    }
+
+    test('Реплика с ошибкой API не сдвигает сравнение', () async {
+      // Речь узбекская. Узбекская модель на самой длинной реплике 1
+      // упала с ошибкой сервиса, турецкая написала там кальку своими
+      // буквами. Сравнивать можно только реплики, распознанные обеими.
+      final copy = freshCopy(probeVideo);
+      final (pipeline, stt) = scripted({
+        'uz-UZ': {
+          2: 'ertaga ertalab bozorga boramiz',
+          3: 'bugun kechqurun uyga kech qaytaman shuning uchun kutmang',
+        },
+        'tr-TR': {
+          1: 'kışta çarçap kaldım şunun için işe barolmadım',
+          2: 'ertaga ertalap bazarga baramız',
+          3: 'bugün keçkurun uyga keç kaytaman şunung uçun kutmang',
+        },
+      }, failing: {('uz-UZ', 1)});
+
+      final probe = await pipeline.detectLanguage(
+        videoPath: copy,
+        candidates: const ['tr-TR', 'uz-UZ'],
+        sleep: (_) async {},
+      );
+
+      expect(probe.session.lang, 'uz-UZ');
+      expect(stt.callsFor('uz-UZ').where((c) => c.$2 == 1), isNotEmpty,
+          reason: 'реплика 1 действительно пробовалась');
+    });
   });
 }

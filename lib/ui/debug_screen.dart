@@ -408,8 +408,9 @@ class _DebugScreenState extends State<DebugScreen>
   /// [asking] — определение не дало уверенного ответа, и обработка ждёт
   /// выбора человека: показываем оба текста и две кнопки.
   Widget _verdictBlock(LanguageVerdict verdict, {required bool asking}) {
-    String title(String lang) =>
-        lang == 'tr-TR' ? 'Турецкая модель' : 'Узбекская модель';
+    // Раньше любая модель, кроме турецкой, подписывалась «узбекской» —
+    // русская в том числе.
+    String title(String lang) => 'Модель: ${_langName(lang)}';
 
     return Container(
       margin: const EdgeInsets.only(top: 10),
@@ -429,7 +430,7 @@ class _DebugScreenState extends State<DebugScreen>
               ? 'Не удалось определить язык: обе модели услышали примерно '
                   'одинаково. Посмотрите, какой текст осмысленнее, '
                   'и выберите язык — обработка продолжится.'
-              : 'Определён ${title(verdict.best.lang).toLowerCase()}. '
+              : 'Определён язык: ${_langName(verdict.lang)}. '
                   'Проверьте по тексту ниже.',
           style: TextStyle(
             fontSize: 12,

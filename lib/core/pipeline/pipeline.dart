@@ -136,12 +136,9 @@ class Pipeline {
     return session;
   }
 
-  /// Прогоняет несколько самых длинных реплик через ОБЕ модели и сравнивает
-  /// результат.
-  ///
-  /// Язык всё равно подтверждает человек: когда данных мало, обе модели дают
-  /// одинаково невнятный текст, и «уверенное» решение было бы выдумкой.
-  /// Зато распознанное здесь не пропадает — оно уходит в сессию.
+  /// Прогоняет несколько самых длинных реплик через модели всех языков
+  /// из [candidates] и выбирает язык по словам (см. `judgeLanguage`).
+  /// Распознанное выигравшей моделью уходит в сессию.
   Future<LanguageProbe> detectLanguage({
     required String videoPath,
     List<String> candidates = kDefaultDetectionCandidates,
@@ -179,12 +176,14 @@ class Pipeline {
         '(${probes.map((c) => c.index).join(', ')}); '
         'кандидаты: ${candidates.map(languageName).join(', ')}');
 
-    final textByLang = <String, String>{};
+    // Результаты по номерам реплик: сравнивать можно только реплики,
+    // которые распознали все модели. Склейка «всё, что вышло» сдвигала
+    // сравнение: реплика с ошибкой сервиса выпадала у одной модели и
+    // оставалась у другой.
     final recognized = <String, Map<int, String>>{};
     var done = 0;
 
     for (final lang in candidates) {
-      final parts = <String>[];
       for (final cue in probes) {
         report(PipelineProgress(PipelineStage.recognizing,
             done: done, total: probes.length * candidates.length));
@@ -194,7 +193,6 @@ class Pipeline {
             () => stt.recognize(oggBytes: bytes, lang: lang),
             sleep: sleep,
           );
-          parts.add(text);
           (recognized[lang] ??= {})[cue.index] = text;
           log.info('[$lang] реплика ${cue.index}: '
               '${text.isEmpty ? '(пусто)' : text}');
@@ -205,18 +203,13 @@ class Pipeline {
         }
         done++;
       }
-      textByLang[lang] = parts.join(' ');
     }
 
-    final verdict = judgeLanguage(textByLang);
-    log.info(verdict.confident
-        ? 'Похоже на ${verdict.best.lang} '
-            '(отрыв ${verdict.gap.toStringAsFixed(2)})'
-        : 'Уверенно определить язык не вышло '
-            '(отрыв ${verdict.gap.toStringAsFixed(2)}) — выбирайте сами');
+    final verdict = judgeLanguage(recognized, candidates: candidates);
+    log.info('Язык: ${verdict.describe()}');
 
     // Сохраняем то, что уже распознали выигравшей моделью.
-    final winner = verdict.best.lang;
+    final winner = verdict.lang;
     final byIndex = recognized[winner] ?? const <int, String>{};
     final session = base.copyWith(
       lang: winner,

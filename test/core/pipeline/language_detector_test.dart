@@ -1,93 +1,312 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/pipeline/language_detector.dart';
 
-/// Тексты ниже вымышленные, но подобраны так, чтобы воспроизводить то, что
-/// различает определитель: у «своей» модели в тексте есть буквы её алфавита,
-/// а «чужая» выдаёт фонетическую кальку без них и часто зацикливается,
-/// повторяя одно слово подряд.
+/// Все тексты ниже вымышленные. «Вывод чужой модели» сочинён по образцу
+/// того, что она делает на самом деле: пишет своими буквами фонетическую
+/// кальку, в которой узнаются слова соседнего языка, и часто зацикливается.
+
+/// Пробы по репликам: язык → список текстов, реплики нумеруются с 1.
+Map<String, Map<int, String>> byCue(Map<String, List<String>> texts) => {
+      for (final entry in texts.entries)
+        entry.key: {
+          for (var i = 0; i < entry.value.length; i++) i + 1: entry.value[i],
+        },
+    };
+
 void main() {
-  group('Оценка отдельного варианта', () {
-    test('Турецкий текст со «своими» буквами получает высокую оценку', () {
-      const text = 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur';
-      expect(scoreLanguage(text, 'tr-TR'), greaterThan(0.5));
+  group('Признаки по отдельности', () {
+    test('Свои слова: доля слов из словаря языка', () {
+      final f = languageFeatures('ertaga ertalab bozorga boramiz', 'uz-UZ');
+      // ertaga, ertalab, boramiz — в словаре; bozorga — нет.
+      expect(f.own, closeTo(0.75, 1e-9));
+      expect(f.words, 4);
+    });
+
+    test('Короткие слова весят меньше длинных', () {
+      final f = languageFeatures('ve kalemler', 'tr-TR');
+      // «ve» в словаре, но весит 0.4 против 1.0 у длинного слова.
+      expect(f.own, closeTo(0.4 / 1.4, 1e-9));
+    });
+
+    test('Своё окончание засчитывается слову вне словаря', () {
+      final f = languageFeatures('gidiyorum', 'tr-TR');
+      expect(f.own, 0);
+      expect(f.ownSuffix, 1);
+    });
+
+    test('Чужие слова узнаются по скелету', () {
+      // Узбекская модель записала турецкие «yarın» и «sabah» своими буквами.
+      final f = languageFeatures('yarin sabah', 'uz-UZ', against: ['tr-TR']);
+      expect(f.foreign, 1);
+      expect(f.own, 0);
+    });
+
+    test('Общие слова соседних языков нейтральны', () {
+      // «bir», «bu», «biz» есть в обоих словарях — ничьими они не считаются.
+      final f = languageFeatures('bir bu biz', 'uz-UZ', against: ['tr-TR']);
+      expect(f.foreign, 0);
+      expect(f.own, 1);
+    });
+
+    test('Чужое окончание работает против варианта', () {
+      final f = languageFeatures('chiqiyorum', 'uz-UZ', against: ['tr-TR']);
+      expect(f.foreignSuffix, 1);
+      expect(f.score, lessThan(languageFeatures('chiqiyorum', 'uz-UZ').score));
+    });
+
+    test('Без соседей по письменности чужих слов не бывает', () {
+      // Русская модель пишет кириллицей — латинская калька с ней несравнима.
+      final f = languageFeatures('yarin sabah', 'uz-UZ', against: ['ru-RU']);
+      expect(f.foreign, 0);
     });
 
     test('Зацикленный повтор штрафуется', () {
       const looped = 'beramiz beramiz beramiz beramiz beramiz';
-      const plain = 'beramiz bir ikki uch tort besh olti';
+      const plain = 'beramiz bir ikki uch besh olti';
       expect(scoreLanguage(looped, 'uz-UZ'),
           lessThan(scoreLanguage(plain, 'uz-UZ')));
+      expect(languageFeatures(looped, 'uz-UZ').repeatLoop, isTrue);
+    });
+
+    test('Однообразный текст штрафуется и без подряд идущих повторов', () {
+      const monotonous = 'bozor non bozor non bozor non';
+      const varied = 'bozor non choy suv guruch piyoz';
+      final a = languageFeatures(monotonous, 'uz-UZ');
+      final b = languageFeatures(varied, 'uz-UZ');
+      expect(a.repeatLoop, isFalse);
+      expect(a.distinctRatio, lessThan(kMonotonyThreshold));
+      expect(a.score, lessThan(b.score));
     });
 
     test('Пустой текст — заведомо худший вариант', () {
-      expect(scoreLanguage('', 'tr-TR'), lessThan(0));
+      expect(scoreLanguage('', 'tr-TR'), kSilentScore);
       expect(scoreLanguage('   ', 'uz-UZ'), lessThan(0));
     });
 
-    test('Чужие буквы работают против варианта', () {
-      const uzbekish = 'qishloq xoʻjaligi sholi choy';
-      expect(scoreLanguage(uzbekish, 'uz-UZ'),
-          greaterThan(scoreLanguage(uzbekish, 'tr-TR')));
+    test('Узбекский текст выше у узбекской модели, чем у турецкой', () {
+      const uzbekish = 'qishloq xoʻjaligi haqida gaplashdik shuning uchun keldik';
+      expect(scoreLanguage(uzbekish, 'uz-UZ', against: ['tr-TR']),
+          greaterThan(scoreLanguage(uzbekish, 'tr-TR', against: ['uz-UZ'])));
+    });
+
+    test('Турецкий текст со своими словами и окончаниями оценивается высоко',
+        () {
+      const text = 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur';
+      expect(scoreLanguage(text, 'tr-TR'), greaterThan(0.5));
     });
   });
 
-  group('Сравнение двух моделей на одном и том же звуке', () {
-    test('Длинная реплика: турецкий уверенно выигрывает', () {
-      final verdict = judgeLanguage({
-        'tr-TR': 'yarın sabah çıkacağız ağabey işler bitince '
-            'haber ederiz şoföre söyle',
-        // Калька без узбекских признаков, да ещё и с зацикливанием.
-        'uz-UZ': 'yarin sabah chikamiz agabey ishlar bitgach '
-            'beramiz beramiz beramiz beramiz beramiz',
-      });
-      expect(verdict.best.lang, 'tr-TR');
-      expect(verdict.confident, isTrue);
+  group('Выбор языка', () {
+    test('Турецкая речь, узбекская калька: турецкий, уверенно', () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'yarın sabah erkenden çarşıya gideceğiz çünkü evde ekmek yok',
+          'akşam eve geç geleceğim sen beni bekleme tamam mı',
+        ],
+        'uz-UZ': [
+          'yarin sabah erkandan charshiga gidajakmiz chunki evda ekmak yoq',
+          'aqsham eve gech gelajagim sen beni beklama tamom mi',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.confidence, LanguageConfidence.high);
+      expect(verdict.runnerUp, 'uz-UZ');
+      expect(verdict.comparedCues, [1, 2]);
     });
 
-    test('Вторая длинная реплика: тоже турецкий', () {
-      final verdict = judgeLanguage({
-        'tr-TR': 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur',
-        'uz-UZ': 'makina durganda su yuzeye tikiyor oyle '
-            'gorunuyor gorunuyor gorunuyor gorunuyor',
-      });
-      expect(verdict.best.lang, 'tr-TR');
-      expect(verdict.confident, isTrue);
+    test('Узбекская речь, турецкая калька: узбекский, уверенно', () {
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': [
+          'bugun ertalab bozorga borib non va sabzi oldim',
+          'akam kechqurun uyga kech keladi shuning uchun ovqatni kutmaymiz',
+        ],
+        'tr-TR': [
+          'bugün ertalap bazarga barıp nan ve sabzi aldım',
+          'akam keçkurun uyga keç keladi şunung uçun ofkatnı kutmaymız',
+        ],
+      }));
+      expect(verdict.lang, 'uz-UZ');
+      expect(verdict.confidence, LanguageConfidence.high);
+      expect(verdict.runnerUp, 'tr-TR');
     });
 
-    test('Короткая реплика без опознавательных букв — решает человек', () {
-      final verdict = judgeLanguage({
-        'tr-TR': 'tam on iki saat var',
-        'uz-UZ': 'tam onikki soat bor',
-      });
-      expect(verdict.confident, isFalse,
-          reason: 'данных мало, угадывать за человека нельзя');
-      expect(verdict.candidates.length, 2,
-          reason: 'оба варианта показываются равноправно');
+    test('Узбекский в новом алфавите (ş ç ö ğ) не принимается за турецкий',
+        () {
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': [
+          'bugun ertalab bozorga borib non oldim şuning uçun keç qoldim',
+          'çoyxonaga borib öz akam bilan gaplaşdim yöq dedi',
+        ],
+        'tr-TR': [
+          'bugün ertalap bazarga barıp nan aldım şunung üçün keç kaldım',
+          'çayhanaga barıp öz akam bilen gaplaştım yok dedi',
+        ],
+      }));
+      expect(verdict.lang, 'uz-UZ');
     });
 
-    test('Если распозналась только одна модель, она и выигрывает', () {
-      final verdict = judgeLanguage({
-        'tr-TR': 'akşam vardiyası başladı',
-        'uz-UZ': '',
-      });
-      expect(verdict.best.lang, 'tr-TR');
-      expect(verdict.confident, isTrue);
+    // Раньше этот случай останавливал обработку вопросом «Это турецкий /
+    // Это узбекский». Теперь выбор делается всегда, а неуверенность
+    // передаётся дальше — в сессию и в жёлтую плашку редактора.
+    test('Короткая реплика без зацепок: выбран лидер, уверенность низкая', () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': ['tam on iki saat var'],
+        'uz-UZ': ['tam onikki soat bor'],
+      }));
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.confidence, LanguageConfidence.low,
+          reason: 'слов меньше порога — уверенным быть нельзя');
+      expect(verdict.runnerUp, 'uz-UZ',
+          reason: 'второй язык нужен для кнопки «Распознать как …»');
+      expect(verdict.candidates.map((c) => c.lang), ['tr-TR', 'uz-UZ']);
     });
 
-    test('Обе модели молчат — уверенности нет', () {
-      final verdict = judgeLanguage({'tr-TR': '', 'uz-UZ': ''});
-      expect(verdict.confident, isFalse);
+    test('Распозналась только одна модель: она и выбрана, но неуверенно', () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': ['akşam vardiyası başladı'],
+        'uz-UZ': [''],
+      }));
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.confidence, LanguageConfidence.low,
+          reason: 'три слова — мало для уверенного выбора');
     });
 
-    test('Настоящий узбекский текст выигрывает у турецкой кальки', () {
+    test('Все модели молчат: первый язык из настроек', () {
+      final verdict = judgeLanguage(
+        byCue({'tr-TR': ['', ''], 'uz-UZ': ['', '']}),
+        candidates: const ['tr-TR', 'uz-UZ'],
+      );
+      expect(verdict.confidence, LanguageConfidence.none);
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.runnerUp, 'uz-UZ');
+      expect(verdict.comparedCues, isEmpty);
+    });
+
+    test('Все модели молчат: язык прошлой обработки', () {
+      final verdict = judgeLanguage(
+        byCue({'tr-TR': [''], 'uz-UZ': ['']}),
+        candidates: const ['tr-TR', 'uz-UZ'],
+        previousLang: 'uz-UZ',
+      );
+      expect(verdict.confidence, LanguageConfidence.none);
+      expect(verdict.lang, 'uz-UZ');
+      expect(verdict.runnerUp, 'tr-TR');
+    });
+
+    test('Язык прошлой обработки годится и не из проверяемых', () {
+      final verdict = judgeLanguage(
+        byCue({'tr-TR': [''], 'uz-UZ': ['']}),
+        previousLang: 'kk-KZ',
+      );
+      expect(verdict.lang, 'kk-KZ');
+      expect(verdict.runnerUp, 'tr-TR');
+    });
+
+    test('Смешанный ролик: выбран язык большинства, уверенность низкая', () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'sluşay zavtra utrom nado zabrat maşinu',
+          'akşam yemeğinde çorba var mı diye annem soruyor',
+          'otobüs biraz geç geldi ama işe zamanında yetiştim',
+        ],
+        'ru-RU': [
+          'слушай завтра утром надо забрать машину',
+          'акшам емейинде чорба вар мы дие анам сорует',
+          'а тобус бираз гечь гельди а мы же заманында етиштим',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.mixed, isTrue);
+      expect(verdict.confidence, LanguageConfidence.low);
+      expect(verdict.candidateFor('ru-RU')!.votes, 1);
+    });
+
+    test('Реплика, на которой одна модель получила ошибку, не сравнивается',
+        () {
+      // Реплика 1 у узбекской модели не распознана (ошибка сервиса).
+      // Турецкий текст на ней не должен «перевешивать» — иначе сравнивались
+      // бы тексты разных реплик.
       final verdict = judgeLanguage({
-        'uz-UZ': 'bugun qishloqda ishlar yaxshi ketyapti shuning uchun '
-            'choyxonaga boramiz',
-        'tr-TR': 'bugun kislokda islar yahsi ketyapti sunung ucun '
-            'coyhanaya boramiz',
+        'tr-TR': {
+          1: 'kışta çarçap kaldım şunun için işe barolmadım',
+          2: 'bugün keçkurun uyga keç kaytaman şunung uçun kutmang',
+        },
+        'uz-UZ': {
+          2: 'bugun kechqurun uyga kech qaytaman shuning uchun kutmang',
+        },
       });
-      expect(verdict.best.lang, 'uz-UZ');
-      expect(verdict.confident, isTrue);
+      expect(verdict.comparedCues, [2]);
+      expect(verdict.lang, 'uz-UZ');
+      expect(verdict.candidateFor('tr-TR')!.text, isNot(contains('kışta')));
+    });
+
+    test('Модель, не ответившая ни на одну пробу, не сравнивается', () {
+      final verdict = judgeLanguage(
+        byCue({
+          'tr-TR': ['yarın sabah erkenden çarşıya gideceğiz çünkü evde '
+              'ekmek yok akşam eve geç geleceğim sen beni bekleme tamam mı'],
+        }),
+        candidates: const ['tr-TR', 'uz-UZ'],
+      );
+      expect(verdict.lang, 'tr-TR');
+      expect(verdict.confidence, LanguageConfidence.low,
+          reason: 'с узбекской моделью никто не сравнил');
+      expect(verdict.candidateFor('uz-UZ')!.compared, isFalse);
+      expect(verdict.runnerUp, 'uz-UZ');
+    });
+
+    test('Модели спотыкались на разных репликах: выбывает худшая', () {
+      final verdict = judgeLanguage({
+        'tr-TR': {1: 'yarın sabah erkenden çarşıya gideceğiz'},
+        'uz-UZ': {
+          2: 'ertaga ertalab bozorga boramiz',
+          3: 'bugun kechqurun uyga kech qaytaman shuning uchun kutmang',
+        },
+      });
+      expect(verdict.lang, 'uz-UZ');
+      expect(verdict.candidateFor('tr-TR')!.compared, isFalse);
+      expect(verdict.confidence, LanguageConfidence.low);
+    });
+
+    test('Результат не зависит от порядка языков', () {
+      final texts = byCue({
+        'tr-TR': ['yarın sabah erkenden çarşıya gideceğiz'],
+        'uz-UZ': ['yarin sabah erkandan charshiga gidajakmiz'],
+      });
+      final a = judgeLanguage(texts, candidates: const ['tr-TR', 'uz-UZ']);
+      final b = judgeLanguage(texts, candidates: const ['uz-UZ', 'tr-TR']);
+      expect(a.lang, b.lang);
+      expect(a.candidateFor('tr-TR')!.score, b.candidateFor('tr-TR')!.score);
+      expect(a.confidence, b.confidence);
+    });
+
+    test('Ничью решает порядок из настроек', () {
+      final texts = byCue({
+        'tr-TR': ['kalem defter'],
+        'uz-UZ': ['kalem defter'],
+      });
+      expect(judgeLanguage(texts, candidates: const ['tr-TR', 'uz-UZ']).lang,
+          'tr-TR');
+      expect(judgeLanguage(texts, candidates: const ['uz-UZ', 'tr-TR']).lang,
+          'uz-UZ');
+    });
+
+    test('Один язык в настройках — не выбор, а данность', () {
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': ['ertaga ertalab bozorga boramiz'],
+      }));
+      expect(verdict.lang, 'uz-UZ');
+      expect(verdict.confidence, LanguageConfidence.high);
+      expect(verdict.runnerUp, isNull);
+    });
+
+    test('Строка для журнала содержит числа, а не только язык', () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': ['tam on iki saat var'],
+        'uz-UZ': ['tam onikki soat bor'],
+      }));
+      expect(verdict.describe(), allOf(contains('tr-TR'), contains('uz-UZ'),
+          contains('отрыв'), contains('неуверенно')));
     });
   });
 }

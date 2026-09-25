@@ -239,8 +239,10 @@ class DebugController extends ChangeNotifier {
       await detectLanguage();
       if (lastError != null) return;
 
+      // Отладочный стенд по-прежнему спрашивает человека при неуверенном
+      // выборе — так видно, что именно услышала каждая модель.
       final verdict = languageVerdict;
-      if (verdict == null || !verdict.confident) {
+      if (verdict == null || verdict.confidence != LanguageConfidence.high) {
         awaitingLanguageChoice = true;
         log.info('Ждём, что язык выберет человек');
         notifyListeners();
@@ -446,8 +448,8 @@ class DebugController extends ChangeNotifier {
       );
       languageVerdict = probe.verdict;
       session = probe.session;
-      if (probe.verdict.confident) {
-        lang = probe.verdict.best.lang;
+      if (probe.verdict.confidence == LanguageConfidence.high) {
+        lang = probe.verdict.lang;
         languageConfirmed = true;
       }
     } catch (e) {
