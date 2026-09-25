@@ -3,6 +3,7 @@ import 'dart:io';
 import '../ffmpeg/commands.dart';
 import '../ffmpeg/ffmpeg_runner.dart';
 import '../models.dart';
+import 'errors.dart';
 
 /// Жёсткий лимит SpeechKit v1 на один синхронный запрос.
 const int kMaxSegmentBytes = 1000000;
@@ -22,15 +23,19 @@ class SegmentCutter {
   final FfmpegRunner runner;
   SegmentCutter(this.runner);
 
+  /// [isCancelled] проверяется перед каждым сегментом: на часовом ролике
+  /// их сотни, и отмена не должна ждать конца нарезки.
   Future<List<SegmentFile>> cut({
     required String audioPath,
     required List<TimeRange> segments,
     required String outputDir,
+    bool Function()? isCancelled,
   }) async {
     Directory(outputDir).createSync(recursive: true);
     final files = <SegmentFile>[];
 
     for (var i = 0; i < segments.length; i++) {
+      throwIfCancelled(isCancelled);
       final index = i + 1;
       final name = 'seg_${index.toString().padLeft(3, '0')}.ogg';
       final path = '$outputDir${Platform.pathSeparator}$name';

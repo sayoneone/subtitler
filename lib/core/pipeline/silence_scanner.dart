@@ -1,6 +1,7 @@
 import '../ffmpeg/commands.dart';
 import '../ffmpeg/ffmpeg_runner.dart';
 import '../models.dart';
+import 'errors.dart';
 import 'segmenter.dart';
 import 'silence_parser.dart';
 
@@ -50,13 +51,17 @@ class SilenceScanner {
     return parseSilenceLog(result.log);
   }
 
+  /// [isCancelled] проверяется перед каждым проходом по файлу: проходов
+  /// бывает до шести, и на длинном ролике каждый занимает секунды.
   Future<SilenceScan> scan({
     required String audioPath,
     required double duration,
+    bool Function()? isCancelled,
   }) async {
     final needed = _requiredPauses(duration);
 
     for (final profile in kSilenceProfiles) {
+      throwIfCancelled(isCancelled);
       final events = await _detect(audioPath, profile);
       final pauses =
           events.where((e) => e.kind == SilenceEventKind.start).length;
@@ -67,6 +72,7 @@ class SilenceScanner {
       final needsFine = speech.any((r) => r.duration > kMaxSegment + 0.5);
       var fine = const <TimeRange>[];
       if (needsFine) {
+        throwIfCancelled(isCancelled);
         final bumped = int.parse(profile.threshold.replaceAll('dB', '')) + 3;
         fine = speechIntervals(
           await _detect(audioPath, SilenceProfile('${bumped}dB', 0.15)),

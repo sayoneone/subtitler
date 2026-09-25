@@ -282,14 +282,15 @@ void main() {
   });
 
   test('Отмена прерывает прогон и сохраняет уже готовое', () async {
-    var checks = 0;
     final stt = FakeStt(['bir', 'iki', 'üç']);
     final session = await build(stt, FakeTranslate()).process(
       videoPath: video,
       lang: 'tr-TR',
       sleep: (_) async {},
-      // Первая проверка пропускает один сегмент, дальше — отмена.
-      isCancelled: () => checks++ > 0,
+      // Первый сегмент успел распознаться — дальше отмена. Раньше здесь
+      // считались сами проверки отмены, но теперь она проверяется и при
+      // подготовке звука, и счёт проверок перестал означать «один сегмент».
+      isCancelled: () => stt.calls >= 1,
     );
     expect(session.cues.any((c) => c.status == CueStatus.ok), isTrue,
         reason: 'успевшее до отмены должно сохраниться');
@@ -368,5 +369,79 @@ void main() {
       expect(stt.callsFor('uz-UZ').where((c) => c.$2 == 1), isNotEmpty,
           reason: 'реплика 1 действительно пробовалась');
     });
+  });
+
+  test('Видео без звуковой дорожки — отдельная понятная ошибка', () async {
+    final silent = '${tmp.path}/no_audio.mp4';
+    final made = await runner.run([
+      '-y', '-hide_banner', '-loglevel', 'error',
+      '-f', 'lavfi', '-i', 'color=c=black:s=320x240:d=3',
+      '-c:v', 'libx264', '-pix_fmt', 'yuv420p',
+      silent,
+    ]);
+    expect(made.ok, isTrue, reason: made.log);
+
+    final stt = FakeStt(const []);
+    await expectLater(
+      build(stt, FakeTranslate())
+          .process(videoPath: silent, lang: 'tr-TR', sleep: (_) async {}),
+      throwsA(isA<NoAudioStreamException>()),
+    );
+    await expectLater(
+      build(stt, FakeTranslate())
+          .detectLanguage(videoPath: silent, sleep: (_) async {}),
+      throwsA(isA<NoAudioStreamException>()),
+    );
+    expect(stt.calls, 0);
+    expect(const NoAudioStreamException().toString(), 'В этом видео нет звука');
+  });
+
+  test('После нарезки audio.wav удаляется, а возобновление не ломается',
+      () async {
+    final workDir = '${tmp.path}/work${workCounter++}';
+    final copy = freshCopy(video);
+    final session = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate(),
+            workDir: workDir)
+        .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
+    expect(File('$workDir/audio.wav').existsSync(), isFalse,
+        reason: 'сотни мегабайт на час видео, после нарезки не нужны');
+
+    // Сегменты пропали, а нераспознанная реплика осталась: звук
+    // извлекается заново и режется снова.
+    Directory('$workDir/segments').deleteSync(recursive: true);
+    final unfinished = session.copyWith(cues: [
+      session.cues.first.copyWith(status: CueStatus.pending, orig: ''),
+      ...session.cues.skip(1),
+    ]);
+    final stt = FakeStt(['bir']);
+    final resumed = await build(stt, FakeTranslate(), workDir: workDir).process(
+      videoPath: copy,
+      lang: 'tr-TR',
+      resumeFrom: unfinished,
+      sleep: (_) async {},
+    );
+    expect(stt.calls, 1, reason: 'распознана только недостающая реплика');
+    expect(resumed.cues.first.status, CueStatus.ok);
+    expect(File('$workDir/audio.wav').existsSync(), isFalse);
+  });
+
+  test('Отмена во время подготовки звука не доходит до нарезки и распознавания',
+      () async {
+    final copy = freshCopy(video);
+    final stt = FakeStt(['bir']);
+    final workDir = '${tmp.path}/work${workCounter++}';
+    await expectLater(
+      build(stt, FakeTranslate(), workDir: workDir).process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        sleep: (_) async {},
+        isCancelled: () => true,
+      ),
+      throwsA(isA<PipelineCancelledException>()),
+    );
+    expect(stt.calls, 0);
+    expect(Directory('$workDir/segments').existsSync(), isFalse,
+        reason: 'после отмены ffmpeg не должен резать сегменты');
+    expect(File('$copy.subtitler.json').existsSync(), isFalse);
   });
 }

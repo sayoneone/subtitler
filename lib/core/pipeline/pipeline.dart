@@ -10,10 +10,13 @@ import '../logging.dart';
 import '../languages.dart';
 import '../models.dart';
 import '../session_store.dart';
+import 'errors.dart';
 import 'language_detector.dart';
 import 'segment_cutter.dart';
 import 'silence_scanner.dart';
 import 'validation.dart';
+
+export 'errors.dart';
 
 enum PipelineStage {
   extractingAudio,
@@ -28,13 +31,6 @@ class PipelineProgress {
   final int done;
   final int total;
   const PipelineProgress(this.stage, {this.done = 0, this.total = 0});
-}
-
-/// Звук в файле есть, но речи не нашлось нигде.
-class NoSpeechFoundException implements Exception {
-  const NoSpeechFoundException();
-  @override
-  String toString() => 'Речь в ролике не обнаружена';
 }
 
 /// Результат проверки языка: что показали обе модели и готовая сессия,
@@ -66,6 +62,10 @@ class Pipeline {
     DebugLog? log,
   }) : log = log ?? DebugLog.instance;
 
+  /// Отмена ([isCancelled]) во время распознавания или перевода возвращает
+  /// то, что успели; во время подготовки звука, когда показывать ещё
+  /// нечего, — [PipelineCancelledException]. Видео без звука —
+  /// [NoAudioStreamException], звук без речи — [NoSpeechFoundException].
   Future<Session> process({
     required String videoPath,
     required String lang,
@@ -98,6 +98,7 @@ class Pipeline {
         duration: duration,
         fingerprint: fingerprint,
         report: report,
+        cancelled: cancelled,
       );
     } else if (!_segmentsPresent(session)) {
       log.warn('Файлы сегментов пропали — режем заново, '
@@ -110,6 +111,7 @@ class Pipeline {
         duration: duration,
         fingerprint: fingerprint,
         report: report,
+        cancelled: cancelled,
       );
       session = _mergeRecognized(fresh: fresh, previous: session);
     }
@@ -165,6 +167,7 @@ class Pipeline {
       duration: duration,
       fingerprint: fingerprint,
       report: report,
+      cancelled: () => false,
     );
 
     // Берём самые длинные реплики: на них у моделей больше шансов
@@ -234,53 +237,77 @@ class Pipeline {
     required double duration,
     required SourceFingerprint fingerprint,
     required void Function(PipelineProgress) report,
+    required bool Function() cancelled,
   }) async {
+    throwIfCancelled(cancelled);
     report(const PipelineProgress(PipelineStage.extractingAudio));
     final audioPath = '$workDir${Platform.pathSeparator}audio.wav';
-    final extracted = await runner
-        .run(FfmpegCommands.extractAudio(input: videoPath, output: audioPath));
-    if (!extracted.ok) {
-      throw StateError('Не удалось извлечь звук: ${extracted.log}');
-    }
+    try {
+      final extracted = await runner.run(
+          FfmpegCommands.extractAudio(input: videoPath, output: audioPath));
+      if (!extracted.ok) {
+        if (NoAudioStreamException.matches(extracted.log)) {
+          log.error('В видео нет звуковой дорожки');
+          throw const NoAudioStreamException();
+        }
+        throw StateError('Не удалось извлечь звук: ${extracted.log}');
+      }
 
-    report(const PipelineProgress(PipelineStage.detectingSilence));
-    final scan = await SilenceScanner(runner)
-        .scan(audioPath: audioPath, duration: duration);
-    if (scan.segments.isEmpty) {
-      log.error('Речь не найдена ни на одном пороге тишины');
-      throw const NoSpeechFoundException();
-    }
-    log.info('Порог тишины ${scan.threshold}, сегментов ${scan.segments.length}'
-        '${scan.forcedSplit ? ' (пауз нет, нарезка принудительная)' : ''}');
-    for (final s in scan.segments) {
-      log.debug('сегмент ${s.start.toStringAsFixed(2)}–'
-          '${s.end.toStringAsFixed(2)} (${s.duration.toStringAsFixed(2)} с)');
-    }
+      throwIfCancelled(cancelled);
+      report(const PipelineProgress(PipelineStage.detectingSilence));
+      final scan = await SilenceScanner(runner).scan(
+          audioPath: audioPath, duration: duration, isCancelled: cancelled);
+      if (scan.segments.isEmpty) {
+        log.error('Речь не найдена ни на одном пороге тишины');
+        throw const NoSpeechFoundException();
+      }
+      log.info('Порог тишины ${scan.threshold}, сегментов ${scan.segments.length}'
+          '${scan.forcedSplit ? ' (пауз нет, нарезка принудительная)' : ''}');
+      for (final s in scan.segments) {
+        log.debug('сегмент ${s.start.toStringAsFixed(2)}–'
+            '${s.end.toStringAsFixed(2)} (${s.duration.toStringAsFixed(2)} с)');
+      }
 
-    final files = await SegmentCutter(runner).cut(
-      audioPath: audioPath,
-      segments: scan.segments,
-      outputDir: _segmentsDir,
-    );
+      final files = await SegmentCutter(runner).cut(
+        audioPath: audioPath,
+        segments: scan.segments,
+        outputDir: _segmentsDir,
+        isCancelled: cancelled,
+      );
 
-    return Session(
-      videoPath: videoPath,
-      fingerprint: fingerprint,
-      lang: lang,
-      silenceThreshold: scan.threshold,
-      forcedSplit: scan.forcedSplit,
-      cues: [
-        for (final file in files)
-          Cue(
-            index: file.index,
-            range: file.range,
-            orig: '',
-            ru: '',
-            status: CueStatus.pending,
-            flags: scan.forcedSplit ? const {CueFlag.forcedSplit} : const {},
-          ),
-      ],
-    );
+      return Session(
+        videoPath: videoPath,
+        fingerprint: fingerprint,
+        lang: lang,
+        silenceThreshold: scan.threshold,
+        forcedSplit: scan.forcedSplit,
+        cues: [
+          for (final file in files)
+            Cue(
+              index: file.index,
+              range: file.range,
+              orig: '',
+              ru: '',
+              status: CueStatus.pending,
+              flags: scan.forcedSplit ? const {CueFlag.forcedSplit} : const {},
+            ),
+        ],
+      );
+    } finally {
+      // Звук нужен только для поиска пауз и нарезки — распознаются уже
+      // сегменты, — а весит он около 345 МБ на час видео. Если сегменты
+      // потом пропадут, _prepare извлечёт его заново.
+      _deleteQuietly(audioPath);
+    }
+  }
+
+  void _deleteQuietly(String path) {
+    try {
+      final file = File(path);
+      if (file.existsSync()) file.deleteSync();
+    } on FileSystemException catch (e) {
+      log.warn('Не удалось удалить $path: $e');
+    }
   }
 
   String get _segmentsDir => '$workDir${Platform.pathSeparator}segments';
