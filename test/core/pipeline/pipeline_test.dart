@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/cloud/api_errors.dart';
 import 'package:subtitler/core/cloud/retry.dart';
 import 'package:subtitler/core/cloud/speechkit_client.dart';
+import 'package:subtitler/core/ffmpeg/ffmpeg_runner.dart';
 import 'package:subtitler/core/ffmpeg/process_runner.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/pipeline/pipeline.dart';
@@ -61,9 +62,14 @@ void main() {
 
   /// Каждому прогону — своя рабочая папка, кроме случаев, когда тест
   /// намеренно продолжает предыдущий (тогда путь передаётся явно).
-  Pipeline build(SpeechKitClient stt, FakeTranslate tr, {String? workDir}) =>
+  Pipeline build(
+    SpeechKitClient stt,
+    FakeTranslate tr, {
+    String? workDir,
+    FfmpegRunner? ffmpeg,
+  }) =>
       Pipeline(
-        runner: runner,
+        runner: ffmpeg ?? runner,
         stt: stt,
         translate: tr,
         store: SessionStore(fallbackDir: tmp.path),
@@ -632,23 +638,110 @@ void main() {
     });
   });
 
-  test('Отмена во время подготовки звука не доходит до нарезки и распознавания',
-      () async {
-    final copy = freshCopy(video);
-    final stt = FakeStt(['bir']);
-    final workDir = '${tmp.path}/work${workCounter++}';
-    await expectLater(
-      build(stt, FakeTranslate(), workDir: workDir).process(
-        videoPath: copy,
-        lang: 'tr-TR',
-        sleep: (_) async {},
-        isCancelled: () => true,
-      ),
-      throwsA(isA<PipelineCancelledException>()),
-    );
-    expect(stt.calls, 0);
-    expect(Directory('$workDir/segments').existsSync(), isFalse,
-        reason: 'после отмены ffmpeg не должен резать сегменты');
-    expect(File('$copy.subtitler.json').existsSync(), isFalse);
+  // Отмену проверяют перед каждым шагом ffmpeg: извлечением звука, каждым
+  // проходом поиска пауз и каждым сегментом нарезки. На двухчасовом ролике
+  // сегментов сотни, и без проверки на каждом шаге «Отмена» ждала бы
+  // конца подготовки. Поэтому отмена нажимается после каждого вида шага,
+  // а не только до первого.
+  group('Отмена во время подготовки звука', () {
+    /// Прогон, который человек отменяет, как только [when] скажет «да».
+    /// Возвращает, какие шаги ffmpeg успели запуститься, и рабочую папку.
+    Future<(_StepRunner, String)> cancelWhen(
+      bool Function(_StepRunner steps) when, {
+      String? firstSilenceLog,
+    }) async {
+      final copy = freshCopy(video);
+      final steps = _StepRunner(runner, firstSilenceLog: firstSilenceLog);
+      final stt = FakeStt(['bir']);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      await expectLater(
+        build(stt, FakeTranslate(), workDir: workDir, ffmpeg: steps).process(
+          videoPath: copy,
+          lang: 'tr-TR',
+          sleep: (_) async {},
+          isCancelled: () => when(steps),
+        ),
+        throwsA(isA<PipelineCancelledException>()),
+      );
+      expect(stt.calls, 0, reason: 'до распознавания дело не дошло');
+      expect(File('$copy.subtitler.json').existsSync(), isFalse);
+      return (steps, workDir);
+    }
+
+    test('до начала — ffmpeg не запускается вовсе', () async {
+      final (steps, workDir) = await cancelWhen((_) => true);
+      expect(steps.kinds, isEmpty);
+      expect(Directory('$workDir/segments').existsSync(), isFalse,
+          reason: 'после отмены ffmpeg не должен резать сегменты');
+    });
+
+    test('после извлечения звука — паузы не ищутся', () async {
+      final (steps, _) = await cancelWhen((s) => s.count('extract') >= 1);
+      expect(steps.kinds, ['extract']);
+    });
+
+    test('между проходами поиска пауз — следующий проход не начинается',
+        () async {
+      // Первый порог пауз «не нашёл» — поиск пошёл бы вторым проходом.
+      final (steps, _) = await cancelWhen((s) => s.count('silence') >= 1,
+          firstSilenceLog: '');
+      expect(steps.kinds, ['extract', 'silence']);
+    });
+
+    test('перед уточняющим проходом — длинный кусок речи не дорезается',
+        () async {
+      // Пауза одна, речь до неё — 12 с: длиннее предела сегмента, и
+      // поиск пауз пошёл бы уточняющим проходом с порогом чувствительнее.
+      final (steps, _) = await cancelWhen((s) => s.count('silence') >= 1,
+          firstSilenceLog: 'silence_start: 12.0\n'
+              'silence_end: 13.0 | silence_duration: 1.0\n');
+      expect(steps.kinds, ['extract', 'silence']);
+    });
+
+    test('во время нарезки — следующий сегмент не режется', () async {
+      final (steps, workDir) = await cancelWhen((s) => s.count('cut') >= 1);
+      expect(steps.count('cut'), 1, reason: 'в ролике три реплики');
+      expect(
+          Directory('$workDir/segments')
+              .listSync()
+              .where((f) => f.path.endsWith('.ogg')),
+          hasLength(1));
+    });
   });
+}
+
+/// Настоящий ffmpeg, который запоминает, какие шаги подготовки звука он
+/// выполнил: извлечение (`extract`), поиск пауз (`silence`), нарезку
+/// (`cut`). [firstSilenceLog] подменяет вывод первого прохода поиска
+/// пауз — так тест управляет тем, будет ли следующий проход.
+class _StepRunner implements FfmpegRunner {
+  final FfmpegRunner inner;
+  final String? firstSilenceLog;
+  final List<String> kinds = [];
+
+  _StepRunner(this.inner, {this.firstSilenceLog});
+
+  int count(String kind) => kinds.where((k) => k == kind).length;
+
+  @override
+  Future<FfmpegResult> run(
+    List<String> args, {
+    void Function(double seconds)? onProgress,
+  }) async {
+    final kind = args.any((a) => a.startsWith('silencedetect'))
+        ? 'silence'
+        : args.last.endsWith('.ogg')
+            ? 'cut'
+            : args.contains('pcm_s16le')
+                ? 'extract'
+                : 'other';
+    kinds.add(kind);
+    if (kind == 'silence' && count('silence') == 1 && firstSilenceLog != null) {
+      return FfmpegResult(exitCode: 0, log: firstSilenceLog!);
+    }
+    return inner.run(args, onProgress: onProgress);
+  }
+
+  @override
+  Future<double> probeDuration(String path) => inner.probeDuration(path);
 }
