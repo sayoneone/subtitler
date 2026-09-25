@@ -1,20 +1,35 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
-import 'app/debug_controller.dart';
+import 'app/app_controller.dart';
 import 'app/diagnostics.dart';
 import 'core/logging.dart';
-import 'ui/debug_screen.dart';
+import 'ui/app_shell.dart';
+import 'ui/player/preview_player.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  installErrorLogging(DebugLog.instance);
-  runApp(SubtitlerApp(controller: DebugController()));
+  final log = DebugLog.instance;
+  // Первым делом: всё, что упадёт дальше, должно попасть в журнал, а не
+  // только в консоль, которой у следователя нет.
+  installErrorLogging(log);
+  initPreviewPlayers(log: log);
+  // Настоящие сервисы (AppServices.real). Отладочный стенд открывается из
+  // меню и берёт у контроллера уже готовые папки, ffmpeg и хранилище.
+  runApp(SubtitlerApp(controller: AppController(log: log)));
 }
 
 class SubtitlerApp extends StatelessWidget {
-  final DebugController controller;
-  const SubtitlerApp({super.key, required this.controller});
+  final AppController controller;
+
+  /// Плеер предпросмотра; в тестах — подделка.
+  final PreviewPlayer Function({DebugLog? log}) playerFactory;
+
+  const SubtitlerApp({
+    super.key,
+    required this.controller,
+    this.playerFactory = createPreviewPlayer,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -29,7 +44,7 @@ class SubtitlerApp extends StatelessWidget {
         GlobalCupertinoLocalizations.delegate,
       ],
       theme: ThemeData(useMaterial3: true, colorSchemeSeed: Colors.indigo),
-      home: DebugScreen(controller: controller),
+      home: AppShell(controller: controller, playerFactory: playerFactory),
     );
   }
 }
