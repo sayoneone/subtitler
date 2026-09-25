@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:subtitler/app/app_controller.dart';
@@ -8,6 +9,7 @@ import 'package:subtitler/app/key_check.dart';
 import 'package:subtitler/app/settings.dart';
 import 'package:subtitler/app/user_error.dart';
 import 'package:subtitler/core/cloud/api_errors.dart';
+import 'package:subtitler/core/cloud/speechkit_client.dart';
 import 'package:subtitler/core/cue_timeline.dart';
 import 'package:subtitler/core/ffmpeg/ffmpeg_locator.dart';
 import 'package:subtitler/core/languages.dart';
@@ -34,6 +36,36 @@ const turkishSpeech = {
     3: 'aqsham eve gech gelajagim sen beni beklama tamom mi',
   },
 };
+
+/// Распознавание, у которого после [answered] ответов пропала сеть: дальше
+/// каждый запрос — TransientException без кода, как у настоящего клиента.
+class _NetworkLostAfter implements SpeechKitClient {
+  final SpeechKitClient inner;
+  final int answered;
+  int calls = 0;
+
+  _NetworkLostAfter(this.inner, {required this.answered});
+
+  @override
+  Future<String> recognize({
+    required List<int> oggBytes,
+    required String lang,
+  }) {
+    calls++;
+    if (calls > answered) {
+      throw const TransientException(
+          message: 'Нет связи с сервисом распознавания');
+    }
+    return inner.recognize(oggBytes: oggBytes, lang: lang);
+  }
+
+  @override
+  Dio get dio => throw UnimplementedError();
+  @override
+  String get apiKey => 'fake';
+  @override
+  String get baseUrl => 'fake';
+}
 
 void main() {
   late Directory sources;
@@ -556,6 +588,54 @@ void main() {
       expect(again.calls, isEmpty, reason: 'распознанное повторно не оплачивается');
       expect(translate.calls, 1);
       expect(c.session!.cues.every((cue) => cue.ru.startsWith('RU:')), isTrue);
+    });
+
+    test('Нет сети — «Нет доступа к интернету» и «Повторить», язык наугад '
+        'не выбран', () async {
+      final h = await started();
+      final c = h.controller;
+      h.stt = FakeStt(const [])
+        ..failCalls = 1000
+        ..failWith = const TransientException(
+            message: 'Нет связи с сервисом распознавания');
+      final video = h.copyVideo(probeClip);
+
+      await c.openVideo(video);
+      expect(c.stage, AppStage.failed);
+      expect(c.error!.title, 'Нет доступа к интернету');
+      expect(c.error!.action, UserErrorAction.retry);
+      expect(File('$video.subtitler.json').existsSync(), isFalse,
+          reason: 'сессия с языком наугад закрепила бы неверный язык');
+      expect(c.settings.lastLanguage, isNull);
+
+      // Сеть вернулась.
+      h.stt = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      await c.retry();
+      expect(c.stage, AppStage.review);
+      expect(c.language, 'tr-TR');
+    });
+
+    test('Сеть пропала во время распознавания — «Повторить» не платит за '
+        'распознанное', () async {
+      final h = await started();
+      final c = h.controller;
+      final scripted = ScriptedStt(h.runtime.workDir, turkishSpeech);
+      // Четыре пробы прошли, дальше сети нет.
+      h.stt = _NetworkLostAfter(scripted, answered: 4);
+      final video = h.copyVideo(probeClip);
+
+      await c.openVideo(video);
+      expect(c.stage, AppStage.failed);
+      expect(c.error!.title, 'Нет доступа к интернету');
+      expect(sessionOnDisk(video).lang, 'tr-TR',
+          reason: 'язык определён до обрыва — пробы сохранены');
+
+      scripted.calls.clear();
+      h.stt = scripted;
+      await c.retry();
+      expect(c.stage, AppStage.review);
+      expect(scripted.calls, [('tr-TR', 2)],
+          reason: 'реплики 1 и 3 уже распознаны пробами');
     });
 
     test('401 при обработке — ошибка с «Изменить ключ», затем продолжение',

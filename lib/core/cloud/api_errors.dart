@@ -16,4 +16,9 @@ class AuthException extends ApiException {
 /// 429/5xx/обрыв сети — имеет смысл повторить.
 class TransientException extends ApiException {
   const TransientException({super.statusCode, required super.message});
+
+  /// Ответа не было вовсе — ни кода, ни тела: нет сети, адрес не
+  /// нашёлся, соединение оборвалось или не успело установиться. При
+  /// 429/5xx сервис ответил, только отказом.
+  bool get noResponse => statusCode == null;
 }

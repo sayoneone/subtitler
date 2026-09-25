@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/cloud/api_errors.dart';
 import 'package:subtitler/core/cloud/retry.dart';
@@ -187,6 +188,134 @@ void main() {
         reason: 'успевшее до отмены должно сохраниться');
     expect(session.cues.any((c) => c.status == CueStatus.pending), isTrue,
         reason: 'остальное осталось необработанным и будет доделано позже');
+  });
+
+  // Без сети клиент отдаёт TransientException без кода: ответа не было
+  // вовсе. Раньше конвейер глотал её везде — пробы, распознавание,
+  // перевод, — и вместо «Нет доступа к интернету» человек через десятки
+  // минут получал редактор с жёлтыми строками и языком наугад.
+  group('Нет сети', () {
+    const offline =
+        TransientException(message: 'Нет связи с сервисом распознавания');
+
+    test('пробы языка: ошибка вместо языка наугад, сессия не пишется',
+        () async {
+      final copy = freshCopy(probeVideo);
+      final stt = FakeStt(const [])
+        ..failCalls = 1000
+        ..failWith = offline;
+      await expectLater(
+        build(stt, FakeTranslate()).detectLanguage(
+          videoPath: copy,
+          candidates: const ['tr-TR', 'uz-UZ'],
+          sleep: (_) async {},
+        ),
+        throwsA(isA<TransientException>()
+            .having((e) => e.statusCode, 'statusCode', isNull)),
+      );
+      expect(File('$copy.subtitler.json').existsSync(), isFalse,
+          reason: 'сессия с языком наугад закрепила бы неверный язык');
+      expect(stt.calls, (kRetryDelays.length + 1) * kNoNetworkStreak,
+          reason: 'две пробы подряд без ответа — дальше не ждём');
+    });
+
+    test('пробы языка: сервис отказал всем — тоже ошибка, а не догадка',
+        () async {
+      final copy = freshCopy(probeVideo);
+      final stt = FakeStt(const [])
+        ..failCalls = 1000
+        ..failWith =
+            const TransientException(statusCode: 503, message: 'недоступен');
+      await expectLater(
+        build(stt, FakeTranslate()).detectLanguage(
+          videoPath: copy,
+          candidates: const ['tr-TR', 'uz-UZ'],
+          sleep: (_) async {},
+        ),
+        throwsA(isA<TransientException>()
+            .having((e) => e.statusCode, 'statusCode', 503)),
+      );
+      expect(File('$copy.subtitler.json').existsSync(), isFalse);
+    });
+
+    test('распознавание: сеть пропала — ошибка, распознанное сохранено, '
+        '«Повторить» не платит за него', () async {
+      final copy = freshCopy(video);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final lost = _NetworkLostAfter(['bir']);
+      await expectLater(
+        build(lost, FakeTranslate(), workDir: workDir)
+            .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {}),
+        throwsA(isA<TransientException>()
+            .having((e) => e.statusCode, 'statusCode', isNull)),
+      );
+      final attempts = kRetryDelays.length + 1;
+      expect(lost.calls, 1 + attempts * kNoNetworkStreak,
+          reason: 'реплика 1 распознана, 2 и 3 — без ответа, дальше не ждём');
+
+      final store = SessionStore(fallbackDir: tmp.path);
+      final fingerprint = SourceFingerprint(
+        sizeBytes: File(copy).lengthSync(),
+        durationSec: await runner.probeDuration(copy),
+      );
+      final saved = (await store.load(copy, fingerprint))!;
+      expect(saved.cues.first.orig, 'bir');
+      expect(saved.cues.first.status, CueStatus.ok);
+
+      // Сеть вернулась, человек нажал «Повторить».
+      final back = FakeStt(['iki', 'üç']);
+      final tr = FakeTranslate();
+      final done = await build(back, tr, workDir: workDir).process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: saved,
+        sleep: (_) async {},
+      );
+      expect(back.calls, 2, reason: 'реплика 1 уже оплачена');
+      expect(done.cues.map((c) => c.orig), ['bir', 'iki', 'üç']);
+      expect(done.cues.every((c) => c.ru.startsWith('RU:')), isTrue);
+    });
+
+    test('распознавание: одна реплика без ответа — failed, прогон идёт '
+        'дальше', () async {
+      final stt = FakeStt(['bir', 'iki'])
+        ..failCalls = kRetryDelays.length + 1
+        ..failWith = offline;
+      final session = await build(stt, FakeTranslate())
+          .process(videoPath: freshCopy(video), lang: 'tr-TR',
+              sleep: (_) async {});
+      expect(session.cues.map((c) => c.status),
+          [CueStatus.failed, CueStatus.ok, CueStatus.ok]);
+    });
+
+    test('перевод: без ответа — ошибка, распознанное сохранено', () async {
+      final copy = freshCopy(video);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final tr = FakeTranslate()
+        ..failWith =
+            const TransientException(message: 'Нет связи с сервисом перевода');
+      await expectLater(
+        build(FakeStt(['bir', 'iki', 'üç']), tr, workDir: workDir)
+            .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {}),
+        throwsA(isA<TransientException>()),
+      );
+
+      final saved = Session.fromJson(
+          jsonDecode(File('$copy.subtitler.json').readAsStringSync())
+              as Map<String, dynamic>);
+      expect(saved.cues.map((c) => c.orig), ['bir', 'iki', 'üç']);
+
+      final again = FakeStt(const []);
+      final done = await build(again, FakeTranslate(), workDir: workDir)
+          .process(
+        videoPath: copy,
+        lang: 'tr-TR',
+        resumeFrom: saved,
+        sleep: (_) async {},
+      );
+      expect(again.calls, 0, reason: 'распознанное повторно не оплачивается');
+      expect(done.cues.every((c) => c.ru.startsWith('RU:')), isTrue);
+    });
   });
 
   // «Отмена» обещает: новых платных запросов не будет. Раньше отмену
@@ -766,6 +895,33 @@ void main() {
           hasLength(1));
     });
   });
+}
+
+/// Распознавание, у которого после [answers] ответов пропала сеть: дальше
+/// каждый запрос уходит в никуда — TransientException без кода.
+class _NetworkLostAfter implements SpeechKitClient {
+  final List<String> answers;
+  int calls = 0;
+
+  _NetworkLostAfter(this.answers);
+
+  @override
+  Future<String> recognize({
+    required List<int> oggBytes,
+    required String lang,
+  }) async {
+    calls++;
+    if (calls <= answers.length) return answers[calls - 1];
+    throw const TransientException(
+        message: 'Нет связи с сервисом распознавания');
+  }
+
+  @override
+  Dio get dio => throw UnimplementedError();
+  @override
+  String get apiKey => 'fake';
+  @override
+  String get baseUrl => 'fake';
 }
 
 /// Настоящий ffmpeg, который запоминает, какие шаги подготовки звука он

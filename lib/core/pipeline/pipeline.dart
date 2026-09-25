@@ -38,6 +38,49 @@ class PipelineProgress {
   const PipelineProgress(this.stage, {this.done = 0, this.total = 0});
 }
 
+/// Сколько запросов подряд должно остаться без ответа (каждый — со всеми
+/// повторами), чтобы решить, что сети нет.
+///
+/// Один такой отказ — сбой одного запроса: реплика помечается
+/// нераспознанной, обработка идёт дальше. Два подряд — это восемь попыток
+/// за 30 с и больше без единого ответа. Дальше ждать бессмысленно: каждая
+/// следующая реплика стоила бы ещё 15 с и больше, а в конце человек
+/// получил бы редактор из одних жёлтых строк вместо «Нет доступа к
+/// интернету».
+const int kNoNetworkStreak = 2;
+
+/// Отвечает ли сервис вообще: считает запросы, оставшиеся без ответа.
+class _Connection {
+  int _streak = 0;
+  bool _answered = false;
+  TransientException? _lost;
+
+  /// Сервис ответил — текстом или кодом ошибки: связь есть.
+  void answered() {
+    _streak = 0;
+    _answered = true;
+  }
+
+  /// Запрос не удался со всеми повторами. `true` — сети нет.
+  bool failed(ApiException e) {
+    if (e is TransientException && e.noResponse) {
+      _streak++;
+      _lost = e;
+      return _streak >= kNoNetworkStreak;
+    }
+    answered();
+    return false;
+  }
+
+  /// Последний отказ без ответа — с ним человек увидит «Нет доступа к
+  /// интернету».
+  TransientException get lost => _lost!;
+
+  /// Запросы были, но ни на один не пришло ответа — сети нет, даже если
+  /// запросов меньше [kNoNetworkStreak].
+  bool get neverAnswered => !_answered && _lost != null;
+}
+
 /// Итог определения языка.
 class LanguageProbe {
   /// С чего продолжать обработку. Либо новая сессия — с выбранным языком,
@@ -93,6 +136,12 @@ class Pipeline {
   /// то, что успели; во время подготовки звука, когда показывать ещё
   /// нечего, — [PipelineCancelledException]. Видео без звука —
   /// [NoAudioStreamException], звук без речи — [NoSpeechFoundException].
+  ///
+  /// Сбой одной реплики помечает её `failed`, и обработка идёт дальше. Но
+  /// если сети нет — [kNoNetworkStreak] реплик подряд остались без ответа,
+  /// сервис не ответил ни разу или без ответа остался перевод, —
+  /// бросается [TransientException] без кода («Нет доступа к интернету»).
+  /// Уже распознанное к этому моменту записано: повтор за него не платит.
   Future<Session> process({
     required String videoPath,
     required String lang,
@@ -206,9 +255,13 @@ class Pipeline {
   /// ([Session.probeTexts]): при смене языка за них не платим повторно.
   ///
   /// [previousLang] — язык прошлой обработки: его берём, если все модели
-  /// промолчали. Отмена ([isCancelled]) до конца проб бросает
-  /// [PipelineCancelledException] и ничего не записывает: сессия с
-  /// неопределённым языком хуже, чем несколько копеек за пробы.
+  /// промолчали (ответили пустым текстом). Отмена ([isCancelled]) до конца
+  /// проб бросает [PipelineCancelledException] и ничего не записывает:
+  /// сессия с неопределённым языком хуже, чем несколько копеек за пробы.
+  /// По той же причине ничего не записывается, если сервис не ответил:
+  /// [kNoNetworkStreak] проб подряд без ответа или ни одна проба первого
+  /// этапа не получила текста из-за временной ошибки — тогда бросается
+  /// эта [TransientException].
   /// Этап [PipelineStage.done] здесь не сообщается — обработка после
   /// определения языка только начинается.
   Future<LanguageProbe> detectLanguage({
@@ -257,6 +310,8 @@ class Pipeline {
     final recognized = <String, Map<int, String>>{};
     var done = 0;
     var total = 0;
+    final connection = _Connection();
+    TransientException? lastTransient;
 
     Future<void> probe(List<Cue> cues, List<String> models) async {
       total += cues.length * models.length;
@@ -274,6 +329,7 @@ class Pipeline {
               sleep: sleep,
               isCancelled: cancelled,
             );
+            connection.answered();
             (recognized[lang] ??= {})[cue.index] = text;
             log.info('[$lang] реплика ${cue.index}: '
                 '${text.isEmpty ? '(пусто)' : text}');
@@ -282,6 +338,12 @@ class Pipeline {
           } on ApiException catch (e) {
             // Реплика без ответа одной из моделей просто не сравнивается.
             log.warn('[$lang] реплика ${cue.index}: ошибка ($e)');
+            if (e is TransientException) lastTransient = e;
+            if (connection.failed(e)) {
+              log.error('Сервис распознавания не отвечает — сети нет, '
+                  'определение языка остановлено');
+              rethrow;
+            }
           }
           done++;
         }
@@ -295,6 +357,14 @@ class Pipeline {
         '${first.map((c) => c.index).join(', ')}; '
         'языки: ${langs.map(languageName).join(', ')}');
     await probe(first, langs);
+    // Ни одна модель не прислала текста — не потому, что в записи тишина
+    // (тогда пришли бы пустые ответы), а потому, что сервис не ответил.
+    // Язык наугад не выбираем и сессию не пишем: выбор закрепился бы, и
+    // весь ролик распознавался бы на догадке. Пусть человек повторит.
+    if (recognized.isEmpty && lastTransient != null) {
+      log.error('Ни одна проба не получила ответа — язык не определяем');
+      throw lastTransient!;
+    }
     var verdict = judgeLanguage(recognized,
         candidates: langs, previousLang: previousLang);
     log.info('Язык по первым пробам: ${verdict.describe()}');
@@ -517,6 +587,7 @@ class Pipeline {
             c.status == CueStatus.pending || c.status == CueStatus.failed)
         .toList();
     var done = 0;
+    final connection = _Connection();
 
     for (final cue in todo) {
       if (cancelled()) break;
@@ -525,12 +596,14 @@ class Pipeline {
 
       final bytes = File(_segmentPath(cue.index)).readAsBytesSync();
       final position = cues.indexWhere((c) => c.index == cue.index);
+      var noNetwork = false;
       try {
         final text = await withRetry(
           () => stt.recognize(oggBytes: bytes, lang: session.lang),
           sleep: sleep,
           isCancelled: cancelled,
         );
+        connection.answered();
         cues[position] = cue.copyWith(
           orig: text,
           status: text.trim().isEmpty ? CueStatus.empty : CueStatus.ok,
@@ -549,12 +622,22 @@ class Pipeline {
       } on ApiException catch (e) {
         log.warn('реплика ${cue.index}: не распозналась ($e)');
         cues[position] = cue.copyWith(status: CueStatus.failed);
+        noNetwork = connection.failed(e);
       }
 
       done++;
       // Инкрементальная запись: обрыв не обнуляет уже оплаченное.
       session = session.copyWith(cues: cues);
       await store.save(session);
+      if (noNetwork) {
+        log.error('Сервис распознавания не отвечает — сети нет, '
+            'обработка остановлена');
+        throw connection.lost;
+      }
+    }
+    if (connection.neverAnswered && !cancelled()) {
+      log.error('Сервис распознавания не ответил ни разу — сети нет');
+      throw connection.lost;
     }
     return session.copyWith(cues: cues);
   }
@@ -599,6 +682,14 @@ class Pipeline {
       await store.save(session.copyWith(cues: cues));
       rethrow;
     } on ApiException catch (e) {
+      if (e is TransientException && e.noResponse) {
+        // Весь перевод — один запрос на все реплики (батчами), и он со
+        // всеми повторами остался без ответа: сети нет. Распознанное
+        // сохраняем; «Повторить» доделает только перевод.
+        log.error('Сервис перевода не отвечает — сети нет');
+        await store.save(session.copyWith(cues: cues));
+        rethrow;
+      }
       log.warn('Перевод не получен: $e');
       // Перевод не получен: распознанный текст не теряем, а реплики
       // получат пометку в applyAutoFlags.
