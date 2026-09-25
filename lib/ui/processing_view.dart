@@ -66,7 +66,11 @@ class ProcessingView extends StatelessWidget {
               const SizedBox(height: 20),
               if (stopping) ...[
                 Text(AppStrings.stopping, style: theme.textTheme.titleSmall),
-                Text(AppStrings.stoppingHint, style: theme.textTheme.bodySmall),
+                Text(
+                    progress?.step == ProcessingStep.preparingAudio
+                        ? AppStrings.stoppingPrepareHint
+                        : AppStrings.stoppingHint,
+                    style: theme.textTheme.bodySmall),
                 const SizedBox(height: 12),
               ],
               OutlinedButton.icon(

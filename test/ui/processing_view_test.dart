@@ -1,11 +1,95 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:subtitler/app/app_controller.dart';
+import 'package:subtitler/core/ffmpeg/ffmpeg_runner.dart';
 
 import '../support/app_harness.dart';
+import '../support/fakes.dart';
+import '../support/media.dart';
 import 'support.dart';
 
 const _video = '/видео/дело 7/беседа во дворе.mp4';
+
+/// Держит извлечение звука, пока тест не вызовет [release]: так «Отмена»
+/// нажимается ровно на шаге «Готовим звук».
+class _HoldAudio implements FfmpegRunner {
+  _HoldAudio(this.inner);
+
+  final FfmpegRunner inner;
+  final _reached = Completer<void>();
+  final _gate = Completer<void>();
+
+  Future<void> get reached => _reached.future;
+
+  void release() {
+    if (!_gate.isCompleted) _gate.complete();
+  }
+
+  @override
+  Future<FfmpegResult> run(
+    List<String> args, {
+    void Function(double seconds)? onProgress,
+  }) async {
+    if (args.contains('pcm_s16le')) {
+      if (!_reached.isCompleted) _reached.complete();
+      await _gate.future;
+    }
+    return inner.run(args, onProgress: onProgress);
+  }
+
+  @override
+  Future<double> probeDuration(String path) => inner.probeDuration(path);
+}
+
+/// Контроллер для настоящей обработки. Всё создаётся в настоящем времени
+/// (runAsync): Future и Completer из поддельной зоны теста обработку, идущую
+/// с настоящим ffmpeg, не разбудили бы — тест бы повис.
+Future<(AppHarness, AppController)> _realTimeController(
+  WidgetTester tester, {
+  FfmpegRunner Function(FfmpegRunner inner)? runner,
+  void Function(AppHarness h)? prepare,
+}) async =>
+    (await tester.runAsync(() async {
+      final h = await started();
+      prepare?.call(h);
+      final used = runner?.call(h.runner) ?? h.runner;
+      final c = AppController(
+        services:
+            h.controller.services.copyWith(runner: (_, _, _) async => used),
+        log: h.log,
+      );
+      await c.init();
+      return (h, c);
+    }))!;
+
+/// Открывает выдуманный ролик и ждёт, пока обработка дойдёт до [reached].
+Future<({Future<void> job})> _openAndWait(
+  WidgetTester tester,
+  AppHarness h,
+  AppController c,
+  Future<void> Function() reached,
+) async {
+  late Future<void> job;
+  await tester.runAsync(() async {
+    final video = await makeSpeechClip(p.join(h.root.path, 'клип.mp4'));
+    job = c.openVideo(video);
+    await reached().timeout(const Duration(seconds: 30));
+  });
+  await tester.pump();
+  return (job: job);
+}
+
+Future<void> _close(
+    WidgetTester tester, AppHarness h, AppController c) async {
+  await tester.pumpWidget(const SizedBox());
+  await tester.runAsync(() async {
+    c.dispose();
+    await h.dispose();
+  });
+}
 
 void main() {
   testWidgets('шаги по-русски, текущий — «4 из 13», «Отмена» на месте',
@@ -73,10 +157,72 @@ void main() {
     await tester.pump();
 
     expect(find.text('Готовим звук'), findsOneWidget);
-    expect(find.textContaining('ищем паузы в речи'), findsOneWidget);
     expect(find.byIcon(Icons.check_circle), findsNothing);
+    // Доли у этого шага нет — только крутилка. Подпись честно говорит,
+    // сколько это может длиться, и без слов вроде «проходов»: на часовом
+    // ролике шаг идёт минуты, и человек решал, что программа зависла.
+    expect(find.byType(LinearProgressIndicator), findsNothing);
+    expect(
+        find.text('Делим запись на фразы — на длинном ролике это может '
+            'занять несколько минут.'),
+        findsOneWidget);
+    expect(find.textContaining('проход'), findsNothing);
 
     await closeApp(tester, h);
+  });
+
+  testWidgets('«Отмена» на подготовке звука — без слов про запрос, которого '
+      'нет', (tester) async {
+    // Во время подготовки звука в Яндекс ничего не отправляется, а экран
+    // писал «Дожидаемся ответа на текущий запрос».
+    late _HoldAudio hold;
+    final (h, c) = await _realTimeController(tester,
+        runner: (inner) => hold = _HoldAudio(inner));
+    await pumpApp(tester, c);
+    final (:job) = await _openAndWait(tester, h, c, () => hold.reached);
+    expect(c.progress?.step, ProcessingStep.preparingAudio);
+
+    await tester.tap(find.text('Отмена'));
+    await tester.pump();
+
+    expect(find.text('Останавливаем…'), findsOneWidget);
+    expect(find.textContaining('ответа на текущий запрос'), findsNothing);
+    expect(
+        find.text('Дожидаемся конца текущего шага подготовки звука — '
+            'платных запросов ещё не было.'),
+        findsOneWidget);
+
+    await tester.runAsync(() async {
+      hold.release();
+      await job;
+    });
+    await tester.pump();
+    expect(c.stage, AppStage.cancelled);
+    await _close(tester, h, c);
+  });
+
+  testWidgets('«Отмена», когда запрос в Яндекс уже ушёл, — ждём ответа на '
+      'него', (tester) async {
+    late GatedStt stt;
+    final (h, c) = await _realTimeController(tester, prepare: (h) {
+      h.stt = stt = GatedStt(FakeStt(const ['bir', 'iki', 'üç']));
+    });
+    await pumpApp(tester, c);
+    final (:job) = await _openAndWait(tester, h, c, () => stt.reached);
+    expect(c.progress?.step, ProcessingStep.detectingLanguage);
+
+    await tester.tap(find.text('Отмена'));
+    await tester.pump();
+    expect(
+        find.text('Дожидаемся ответа на текущий запрос — новых платных '
+            'запросов не будет.'),
+        findsOneWidget);
+
+    await tester.runAsync(() async {
+      stt.release();
+      await job;
+    });
+    await _close(tester, h, c);
   });
 
   testWidgets('платная смена языка — без шага «Определяем язык»',
