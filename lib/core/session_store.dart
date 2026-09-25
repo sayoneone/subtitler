@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import 'languages.dart';
 import 'models.dart';
+import 'path_hash.dart';
 
 /// Читает и пишет `<имя>.subtitler.json`. Если папка с исходником недоступна
 /// для записи (вещдок на защищённом носителе), файл уходит в [fallbackDir].
@@ -19,20 +20,47 @@ class SessionStore {
 
   String sessionPathFor(String videoPath) => '$videoPath.subtitler.json';
 
+  /// В запасной папке лежат сессии видео со всех носителей, а копии
+  /// вещдоков часто называются одинаково («VID_0001.mp4» из разных дел).
+  /// Поэтому к имени видео добавлен хеш полного пути: иначе сессия
+  /// одного дела молча затирала бы сессию другого — с ручными правками,
+  /// а ролик пришлось бы оплачивать заново.
   String fallbackPathFor(String videoPath) =>
-      p.join(fallbackDir, '${p.basename(videoPath)}.subtitler.json');
+      p.join(fallbackDir, '${_fallbackStem(videoPath)}.subtitler.json');
 
   String backupPathFor(String videoPath, String lang) =>
       '$videoPath.subtitler.$lang.json';
 
-  String fallbackBackupPathFor(String videoPath, String lang) =>
+  String fallbackBackupPathFor(String videoPath, String lang) => p.join(
+      fallbackDir, '${_fallbackStem(videoPath)}.subtitler.$lang.json');
+
+  /// «VID_0001.mp4.1a2b3c4d»: человек узнаёт видео по началу имени.
+  /// Очень длинное имя обрезается: вместе с хешем и хвостом оно упёрлось
+  /// бы в предел длины имени файла (255 символов), а уникальность и так
+  /// даёт хеш.
+  String _fallbackStem(String videoPath) {
+    final name = p.basename(videoPath);
+    final short = name.length > 100 ? name.substring(0, 100) : name;
+    return '$short.${stablePathHash(videoPath)}';
+  }
+
+  /// Так запасные файлы называла прежняя версия — только по имени видео.
+  /// Они читаются, чтобы не оплачивать уже обработанное заново, но не
+  /// пишутся: такой файл общий для всех одноимённых видео.
+  String _legacyFallbackPathFor(String videoPath) =>
+      p.join(fallbackDir, '${p.basename(videoPath)}.subtitler.json');
+
+  String _legacyFallbackBackupPathFor(String videoPath, String lang) =>
       p.join(fallbackDir, '${p.basename(videoPath)}.subtitler.$lang.json');
 
   /// Возвращает сессию, только если отпечаток совпал с [actual].
   /// Сессии прежних схем читаются (см. [Session.fromJson]).
   Future<Session?> load(String videoPath, SourceFingerprint actual) =>
-      _loadFirst(
-          [sessionPathFor(videoPath), fallbackPathFor(videoPath)], actual);
+      _loadFirst([
+        sessionPathFor(videoPath),
+        fallbackPathFor(videoPath),
+        _legacyFallbackPathFor(videoPath),
+      ], actual);
 
   /// Пишет сессию и возвращает фактический путь.
   Future<String> save(Session session) => _write(
@@ -58,6 +86,7 @@ class SessionStore {
     final session = await _loadFirst([
       backupPathFor(videoPath, lang),
       fallbackBackupPathFor(videoPath, lang),
+      _legacyFallbackBackupPathFor(videoPath, lang),
     ], actual);
     // Копию могли переименовать руками — язык внутри важнее имени файла.
     return session?.lang == lang ? session : null;

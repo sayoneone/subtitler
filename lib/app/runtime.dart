@@ -6,6 +6,12 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../core/logging.dart';
+import '../core/path_hash.dart';
+
+// Хеш пути нужен и ядру (имена сессий в запасной папке), а ядро не
+// зависит от Flutter — поэтому он живёт там; здесь только для тех, кто
+// привык брать его отсюда.
+export '../core/path_hash.dart' show stablePathHash;
 
 const String kFontAsset = 'assets/fonts/NotoSans-Regular.ttf';
 const String kFontFamily = 'Noto Sans';
@@ -104,17 +110,4 @@ class AppRuntime {
 
   static String _sanitize(String name) =>
       name.replaceAll(RegExp(r'[^A-Za-zА-Яа-я0-9_-]+'), '_');
-}
-
-/// FNV-1a от пути. `String.hashCode` не обещает одинаковых значений между
-/// версиями Dart, а имена рабочей и запасной папки должны пережить
-/// обновление приложения: иначе после него уже нарезанное пришлось бы
-/// резать заново, а результат ложился бы в новую папку.
-String stablePathHash(String path) {
-  var hash = 0x811c9dc5;
-  for (final unit in path.codeUnits) {
-    hash ^= unit;
-    hash = (hash * 0x01000193) & 0xffffffff;
-  }
-  return hash.toRadixString(16).padLeft(8, '0');
 }

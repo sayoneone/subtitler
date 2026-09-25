@@ -2,7 +2,9 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
 import 'package:subtitler/core/models.dart';
+import 'package:subtitler/core/path_hash.dart';
 import 'package:subtitler/core/session_store.dart';
 
 import '../support/interrupted_writes.dart';
@@ -272,6 +274,83 @@ void main() {
           reason: 'временный файл убран');
       expect(File(primary).readAsStringSync(), contains('брат'),
           reason: 'прежний файл не тронут');
+    });
+  });
+
+  group('Запасная папка', () {
+    const fpA = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+    const fpB = SourceFingerprint(sizeBytes: 200, durationSec: 34.8);
+
+    // Рядом с видео писать нельзя: здесь — папки уже нет (носитель
+    // отключили), с защищённым носителем запись так же уходит в
+    // запасную папку.
+    String caseVideo(String caseFolder) =>
+        '${tmp.path}/отключённый носитель/$caseFolder/VID_0001.mp4';
+
+    test('Одноимённые видео разных дел не затирают сессии друг друга',
+        () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      final videoA = caseVideo('дело А');
+      final videoB = caseVideo('дело Б');
+
+      final savedA = await store.save(sessionFor(videoA));
+      final savedB = await store.save(sessionFor(videoB, size: 200));
+      expect(savedA, startsWith(fallback.path));
+      expect(savedB, startsWith(fallback.path));
+
+      expect(await store.load(videoA, fpA), isNotNull,
+          reason: 'сессия дела А на месте — ролик не оплачивается заново');
+      expect(await store.load(videoB, fpB), isNotNull);
+    });
+
+    test('Резервные копии языков одноимённых видео тоже раздельные',
+        () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      final videoA = caseVideo('дело А');
+      final videoB = caseVideo('дело Б');
+
+      await store.saveBackup(sessionFor(videoA).copyWith(lang: 'uz-UZ'));
+      await store.saveBackup(
+          sessionFor(videoB, size: 200).copyWith(lang: 'uz-UZ'));
+
+      expect(await store.loadBackup(videoA, 'uz-UZ', fpA), isNotNull);
+      expect(await store.backupLanguages(videoA, fpA), {'uz-UZ'});
+      expect(await store.loadBackup(videoB, 'uz-UZ', fpB), isNotNull);
+    });
+
+    test('Имя в запасной папке — имя видео и отпечаток полного пути', () {
+      final store = SessionStore(fallbackDir: fallback.path);
+      final video = caseVideo('дело А');
+      final hash = stablePathHash(video);
+      expect(store.fallbackPathFor(video),
+          p.join(fallback.path, 'VID_0001.mp4.$hash.subtitler.json'));
+      expect(store.fallbackBackupPathFor(video, 'uz-UZ'),
+          p.join(fallback.path, 'VID_0001.mp4.$hash.subtitler.uz-UZ.json'));
+    });
+
+    test('Сессия и копия под прежним именем читаются, пишутся под новым',
+        () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      final video = caseVideo('дело А');
+      // Так их называла прежняя версия: только по имени видео.
+      final legacy = p.join(fallback.path, 'VID_0001.mp4.subtitler.json');
+      final legacyBackup =
+          p.join(fallback.path, 'VID_0001.mp4.subtitler.uz-UZ.json');
+      File(legacy).writeAsStringSync(jsonEncode(sessionFor(video).toJson()));
+      File(legacyBackup).writeAsStringSync(
+          jsonEncode(sessionFor(video).copyWith(lang: 'uz-UZ').toJson()));
+
+      final loaded = await store.load(video, fpA);
+      expect(loaded, isNotNull, reason: 'иначе оплачивать заново');
+      expect((await store.loadBackup(video, 'uz-UZ', fpA))?.lang, 'uz-UZ');
+      expect(await store.backupLanguages(video, fpA), {'uz-UZ'});
+
+      final saved = await store.save(loaded!);
+      expect(saved, store.fallbackPathFor(video));
+      expect(File(legacy).readAsStringSync(),
+          jsonEncode(sessionFor(video).toJson()),
+          reason: 'прежний файл общий для всех видео с этим именем — '
+              'в него больше не пишем');
     });
   });
 
