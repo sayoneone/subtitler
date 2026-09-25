@@ -18,7 +18,35 @@ void main() {
     test('Windows: прямые слеши превращаются в обратные', () {
       final command = revealCommand('C:/дело/clip_ru.mp4',
           operatingSystem: 'windows')!;
-      expect(command.arguments.last, r'C:\дело\clip_ru.mp4');
+      expect(command.arguments.last.trimRight(), r'C:\дело\clip_ru.mp4');
+    });
+
+    test('Windows: путь без пробелов тоже уходит в кавычках — запятая и «=» '
+        'его не режут', () {
+      // Проводник считает запятую и «=» разделителями, если путь не в
+      // кавычках, и открывает Рабочий стол вместо папки с файлом. Dart
+      // берёт аргумент в кавычки, только если в нём есть пробел
+      // (табуляция, кавычка), поэтому в аргументе должен быть пробел: в
+      // конце пути его отбрасывает сам Проводник.
+      for (final path in [
+        r'C:\Дела\12,13\VID_0001_ru.mp4',
+        r'C:\Дела\a=b\VID_0001_ru.mp4',
+        r'C:\Дела\VID,3_ru.mp4',
+        r'C:\Дела\VID_0001_ru.mp4',
+      ]) {
+        final command = revealCommand(path, operatingSystem: 'windows')!;
+        expect(command.arguments.first, '/select,');
+        final argument = command.arguments.last;
+        expect(argument, contains(' '),
+            reason: 'без пробела Dart не возьмёт в кавычки $path');
+        expect(argument.trimRight(), path);
+      }
+    });
+
+    test('Windows: путь с пробелом не меняется — кавычки поставит Dart', () {
+      const path = r'C:\Дела\12, 13\VID_0001_ru.mp4';
+      expect(revealCommand(path, operatingSystem: 'windows')!.arguments.last,
+          path);
     });
 
     test('Windows: код возврата 1 Проводника — не ошибка', () {
@@ -59,7 +87,8 @@ void main() {
         },
       );
       expect(ok, isTrue);
-      expect(calls.single, ['explorer.exe', '/select,', r'C:\дело\clip_ru.mp4']);
+      // Пробел в конце — чтобы Dart взял путь в кавычки (см. revealCommand).
+      expect(calls.single, ['explorer.exe', '/select,', r'C:\дело\clip_ru.mp4 ']);
     });
 
     test('ненулевой код на macOS — неудача, но без исключения', () async {

@@ -29,12 +29,24 @@ class RevealCommand {
 /// берёт в кавычки всё целиком, и Проводник ключа не видит — открывает
 /// «Документы». Проверено на этой машине. Путь с прямыми слешами
 /// Проводник тоже не понимает, поэтому он нормализуется.
+///
+/// Путь должен уйти в кавычках всегда. Без кавычек Проводник режет его
+/// по запятой и по «=» (разделители его ключей) и открывает Рабочий стол
+/// вместо папки с файлом: `C:\Дела\12,13\VID_0001_ru.mp4`. Dart ставит
+/// кавычки, только если в аргументе есть пробел, табуляция или кавычка,
+/// поэтому к пути без пробела добавляется пробел в конце. Проводник его
+/// отбрасывает, как и вся Windows отбрасывает пробелы в конце имени
+/// файла: папка открывается и файл выделен. Проверено на этой машине для
+/// запятой и «=» в папке и в имени файла.
 RevealCommand? revealCommand(String path, {required String operatingSystem}) {
   switch (operatingSystem) {
     case 'windows':
+      final target = p.windows.normalize(path);
+      final quoted =
+          target.contains(' ') || target.contains('\t') ? target : '$target ';
       return RevealCommand(
         'explorer.exe',
-        ['/select,', p.windows.normalize(path)],
+        ['/select,', quoted],
         okExitCodes: const {0, 1},
       );
     case 'macos':
