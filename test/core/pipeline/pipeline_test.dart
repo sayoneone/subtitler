@@ -189,6 +189,64 @@ void main() {
         reason: 'остальное осталось необработанным и будет доделано позже');
   });
 
+  // «Отмена» обещает: новых платных запросов не будет. Раньше отмену
+  // проверяли только перед первой попыткой, а повторы после временной
+  // ошибки шли своим чередом — с паузами до 10 с и новыми запросами.
+  group('Отмена во время паузы между повторами', () {
+    const busy = TransientException(statusCode: 503, message: 'занято');
+
+    test('распознавание: следующей попытки нет, реплика не провалена',
+        () async {
+      var cancelled = false;
+      final stt = FakeStt(['bir', 'iki', 'üç'])
+        ..failCalls = 1000
+        ..failWith = busy;
+      final session = await build(stt, FakeTranslate()).process(
+        videoPath: video,
+        lang: 'tr-TR',
+        // Человек нажал «Отмену», пока ждали повтора.
+        sleep: (_) async => cancelled = true,
+        isCancelled: () => cancelled,
+      );
+      expect(stt.calls, 1, reason: 'после отмены запросов нет');
+      expect(session.cues.every((c) => c.status == CueStatus.pending), isTrue,
+          reason: 'повторы не исчерпаны — реплику распознаем в следующий раз');
+    });
+
+    test('пробы языка: следующей попытки нет', () async {
+      final copy = freshCopy(probeVideo);
+      final workDir = '${tmp.path}/work${workCounter++}';
+      final stt = ScriptedStt(workDir, const {}, failing: {
+        for (final lang in ['tr-TR', 'uz-UZ'])
+          for (final cue in [1, 2, 3]) (lang, cue),
+      });
+      var cancelled = false;
+      await expectLater(
+        build(stt, FakeTranslate(), workDir: workDir).detectLanguage(
+          videoPath: copy,
+          candidates: const ['tr-TR', 'uz-UZ'],
+          sleep: (_) async => cancelled = true,
+          isCancelled: () => cancelled,
+        ),
+        throwsA(isA<PipelineCancelledException>()),
+      );
+      expect(stt.calls, hasLength(1));
+    });
+
+    test('перевод: следующей попытки нет, распознанное на месте', () async {
+      var cancelled = false;
+      final tr = FakeTranslate()..failWith = busy;
+      final session = await build(FakeStt(['bir', 'iki', 'üç']), tr).process(
+        videoPath: freshCopy(video),
+        lang: 'tr-TR',
+        sleep: (_) async => cancelled = true,
+        isCancelled: () => cancelled,
+      );
+      expect(tr.calls, 1);
+      expect(session.cues.where((c) => c.orig.isNotEmpty), isNotEmpty);
+    });
+  });
+
   test('Прогресс сообщает этапы по порядку', () async {
     final stages = <PipelineStage>[];
     await build(FakeStt(['bir']), FakeTranslate()).process(

@@ -267,9 +267,12 @@ class Pipeline {
           report(PipelineProgress(PipelineStage.detectingLanguage,
               done: done, total: total));
           try {
+            // Отмена между повторами — PipelineCancelledException: она
+            // не ApiException и летит наружу, как и положено при пробах.
             final text = await withRetry(
               () => stt.recognize(oggBytes: bytes, lang: lang),
               sleep: sleep,
+              isCancelled: cancelled,
             );
             (recognized[lang] ??= {})[cue.index] = text;
             log.info('[$lang] реплика ${cue.index}: '
@@ -526,6 +529,7 @@ class Pipeline {
         final text = await withRetry(
           () => stt.recognize(oggBytes: bytes, lang: session.lang),
           sleep: sleep,
+          isCancelled: cancelled,
         );
         cues[position] = cue.copyWith(
           orig: text,
@@ -534,6 +538,10 @@ class Pipeline {
         log.info(text.trim().isEmpty
             ? 'реплика ${cue.index}: речи нет'
             : 'реплика ${cue.index}: $text');
+      } on PipelineCancelledException {
+        // Отмена в паузе между повторами: повторы не исчерпаны, реплика
+        // остаётся какой была и распознается при продолжении.
+        break;
       } on AuthException catch (e) {
         log.error('Остановка: $e');
         await store.save(session.copyWith(cues: cues));
@@ -575,12 +583,17 @@ class Pipeline {
           sourceLang: session.lang,
         ),
         sleep: sleep,
+        isCancelled: cancelled,
       );
       log.info('Переведено реплик: ${translations.length}');
       for (var i = 0; i < pending.length && i < translations.length; i++) {
         final position = cues.indexWhere((c) => c.index == pending[i].index);
         cues[position] = cues[position].copyWith(ru: translations[i]);
       }
+    } on PipelineCancelledException {
+      // Отмена в паузе между повторами: перевод доделается при следующем
+      // открытии видео.
+      return session;
     } on AuthException catch (e) {
       log.error('Перевод остановлен: $e');
       await store.save(session.copyWith(cues: cues));
