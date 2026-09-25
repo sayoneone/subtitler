@@ -162,7 +162,10 @@ UserError describeError(
             '${_srtAlreadySaved(srt)}',
         UserErrorAction.none,
       );
-    case FileBusyException(:final fileName):
+    case FileBusyException(:final path):
+      // Имя — по правилам путей той ОС, о которой сообщение ([windows]), а
+      // не той, где выполняется код: так же, как у кода 32 ниже.
+      final fileName = (onWindows ? p.windows : p.posix).basename(path);
       return make(
         'Файл $fileName открыт в другой программе, закройте его и повторите',
         'Чаще всего это видеоплеер. Закройте его и нажмите «Повторить».',

@@ -93,6 +93,16 @@ void main() {
         'Файл clip_ru.mp4 открыт в другой программе, закройте его и повторите');
     expect(error.action, UserErrorAction.retry);
 
+    // Имя берётся по правилам путей той ОС, для которой составлено
+    // сообщение, а не той, где идут тесты: CI гоняет их и на Linux. Там
+    // обратная косая черта — обычный символ имени файла.
+    expect(
+        describe(const FileBusyException(r'/дело/клип\2_ru.mp4'),
+                windows: false)
+            .title,
+        r'Файл клип\2_ru.mp4 открыт в другой программе, закройте его и '
+        'повторите');
+
     // То же по коду ошибки Windows (32 — ERROR_SHARING_VIOLATION).
     expect(describe(fsError(32)).title,
         'Файл clip_ru.mp4 открыт в другой программе, закройте его и повторите');

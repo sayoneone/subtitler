@@ -13,8 +13,6 @@ class FileBusyException implements Exception {
   final String path;
   const FileBusyException(this.path);
 
-  String get fileName => p.basename(path);
-
   @override
   String toString() => 'Файл $path открыт в другой программе';
 }
