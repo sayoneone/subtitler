@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
@@ -18,6 +19,11 @@ import 'save_bar.dart';
 
 /// Шире этого — плеер слева, список справа; уже — плеер сверху.
 const double kReviewWideLayout = 900;
+
+/// Ниже этого экран не сжимается, а прокручивается целиком. Окно,
+/// приставленное к углу экрана, при масштабе 125–150 % бывает ниже 350
+/// точек: сжатые в него видео и список превратились бы в полоски.
+const double kReviewMinHeight = 480;
 
 /// Предпросмотр: видео с субтитрами поверх кадра, список реплик с правкой,
 /// смена языка и сохранение видео с вшитыми субтитрами.
@@ -268,70 +274,93 @@ class _ReviewViewState extends State<ReviewView> {
           ? const SizedBox.expand()
           : LayoutBuilder(
               builder: (context, box) {
-                final wide = box.maxWidth >= kReviewWideLayout;
-                final top = ConstrainedBox(
-                  constraints: BoxConstraints(maxHeight: box.maxHeight * 0.4),
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                    child: _top(session),
-                  ),
-                );
-                final bottom = Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
-                  child: _saveBar(),
-                );
-                if (wide) {
-                  return Column(
-                    children: [
-                      top,
-                      Expanded(
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Expanded(
-                              flex: 5,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  16,
-                                  0,
-                                  12,
-                                  8,
-                                ),
-                                child: _playerArea(session),
-                              ),
-                            ),
-                            const VerticalDivider(width: 1),
-                            Expanded(flex: 4, child: _cueList(session)),
-                          ],
-                        ),
-                      ),
-                      const Divider(height: 1),
-                      bottom,
-                    ],
-                  );
-                }
-                final playerHeight = (box.maxWidth * 9 / 16 + 56).clamp(
-                  160.0,
-                  box.maxHeight * 0.42,
-                );
-                return Column(
-                  children: [
-                    top,
-                    SizedBox(
-                      height: playerHeight,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        child: _playerArea(session),
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(child: _cueList(session)),
-                    const Divider(height: 1),
-                    bottom,
-                  ],
+                final available = box.hasBoundedHeight ? box.maxHeight : 0.0;
+                final height = math.max(available, kReviewMinHeight);
+                final screen = _layout(session, Size(box.maxWidth, height));
+                if (available >= kReviewMinHeight) return screen;
+                return SingleChildScrollView(
+                  key: const ValueKey('review-scroll'),
+                  child: SizedBox(height: height, child: screen),
                 );
               },
             ),
+    );
+  }
+
+  /// Экран высотой [size].height: сверху шапка с плашками, внизу полоса
+  /// сохранения, между ними видео и список.
+  ///
+  /// Шапка и полоса берут столько, сколько им нужно, но не больше своего
+  /// потолка — дальше они прокручиваются. Видео и списку всегда остаётся
+  /// не меньше `middleMin`: раньше ошибка сохранения с раскрытыми
+  /// «Техническими деталями» съедала их целиком, а кнопки уходили за край.
+  Widget _layout(Session session, Size size) {
+    final wide = size.width >= kReviewWideLayout;
+    final top = SingleChildScrollView(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: _top(session),
+    );
+    final bottom = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Divider(height: 1),
+        Flexible(
+          child: SingleChildScrollView(
+            key: const ValueKey('review-save-scroll'),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 12),
+            child: _saveBar(),
+          ),
+        ),
+      ],
+    );
+    final Widget middle;
+    final double middleMin;
+    if (wide) {
+      middle = Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(
+            flex: 5,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
+              child: _playerArea(session),
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          Expanded(flex: 4, child: _cueList(session)),
+        ],
+      );
+      middleMin = size.height * 0.45;
+    } else {
+      // Верхняя граница сначала: в низком окне 42 % высоты бывали меньше
+      // 160, и clamp с перевёрнутыми границами ронял весь экран.
+      final playerMax = size.height * 0.38;
+      final playerHeight = (size.width * 9 / 16 + 56)
+          .clamp(math.min(120.0, playerMax), playerMax)
+          .toDouble();
+      middle = Column(
+        children: [
+          SizedBox(
+            height: playerHeight,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: _playerArea(session),
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(child: _cueList(session)),
+        ],
+      );
+      middleMin = playerHeight + 1 + math.max(72.0, size.height * 0.15);
+    }
+    return CustomMultiChildLayout(
+      delegate: _ReviewLayout(topMax: size.height * 0.3, middleMin: middleMin),
+      children: [
+        LayoutId(id: _Slot.top, child: top),
+        LayoutId(id: _Slot.middle, child: middle),
+        LayoutId(id: _Slot.bottom, child: bottom),
+      ],
     );
   }
 
@@ -366,6 +395,13 @@ class _ReviewViewState extends State<ReviewView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Первой: шапка прокручивается, а про режим просмотра и выход из
+        // него человек должен видеть сразу.
+        if (_showingResult)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _resultStrip(),
+          ),
         ReviewHeader(
           total: session.cues.length,
           toCheck: c.reviewCount,
@@ -460,46 +496,45 @@ class _ReviewViewState extends State<ReviewView> {
     );
   }
 
-  Widget _playerArea(Session session) {
+  Widget _playerArea(Session session) => VideoPreview(
+    player: _player,
+    // В готовом файле субтитры уже вшиты — второй слой поверх них только
+    // мешал бы сравнить.
+    cues: _showingResult ? const [] : session.cues,
+  );
+
+  /// «Готовое видео: … — Вернуться к правке». В шапке, а не над кадром:
+  /// там она отнимала у невысокого плеера половину кадра.
+  Widget _resultStrip() {
     final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (_showingResult)
-          Container(
-            key: const ValueKey('review-result-strip'),
-            margin: const EdgeInsets.only(bottom: 6),
-            padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
-            decoration: BoxDecoration(
-              color: kPlateGreen,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Готовое видео: ${c.saveResult?.fileName ?? ''} — '
-                    'субтитры уже в кадре',
-                    style: theme.textTheme.bodyMedium,
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () => unawaited(_backToEditing()),
-                  icon: const Icon(Icons.edit_outlined, size: 18),
-                  label: const Text('Вернуться к правке'),
-                ),
-              ],
+    return Container(
+      key: const ValueKey('review-result-strip'),
+      padding: const EdgeInsets.fromLTRB(12, 4, 4, 4),
+      decoration: BoxDecoration(
+        color: kPlateGreen,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      // Wrap, а не Row: на телефоне кнопка уходит под текст, а не
+      // сжимает его в столбик по слову.
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Готовое видео: ${c.saveResult?.fileName ?? ''} — '
+              'субтитры уже в кадре',
+              style: theme.textTheme.bodyMedium,
             ),
           ),
-        Expanded(
-          child: VideoPreview(
-            player: _player,
-            // В готовом файле субтитры уже вшиты — второй слой поверх
-            // них только мешал бы сравнить.
-            cues: _showingResult ? const [] : session.cues,
+          TextButton.icon(
+            onPressed: () => unawaited(_backToEditing()),
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            label: const Text('Вернуться к правке'),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -530,4 +565,43 @@ class _ReviewViewState extends State<ReviewView> {
     onOtherVideo: () => unawaited(c.goHome()),
     onErrorAction: _onErrorAction,
   );
+}
+
+enum _Slot { top, middle, bottom }
+
+/// Раскладка экрана по высоте. Column здесь не годится: полосе сохранения
+/// без Flexible он даёт сколько угодно места, и видео со списком
+/// сжимались до нуля; с Flexible — наоборот, не знает, что ей нужно.
+///
+/// Поэтому по очереди: шапка — сколько нужно, но не выше [topMax]; полоса
+/// сохранения — сколько нужно из того, что осталось сверх [middleMin];
+/// видео и список — всё остальное.
+class _ReviewLayout extends MultiChildLayoutDelegate {
+  _ReviewLayout({required this.topMax, required this.middleMin});
+
+  final double topMax;
+  final double middleMin;
+
+  @override
+  void performLayout(Size size) {
+    BoxConstraints upTo(double height) => BoxConstraints(
+      minWidth: size.width,
+      maxWidth: size.width,
+      maxHeight: math.max(0.0, height),
+    );
+    final top = layoutChild(_Slot.top, upTo(topMax)).height;
+    final bottom = layoutChild(
+      _Slot.bottom,
+      upTo(size.height - top - middleMin),
+    ).height;
+    final middle = math.max(0.0, size.height - top - bottom);
+    layoutChild(_Slot.middle, BoxConstraints.tight(Size(size.width, middle)));
+    positionChild(_Slot.top, Offset.zero);
+    positionChild(_Slot.middle, Offset(0, top));
+    positionChild(_Slot.bottom, Offset(0, top + middle));
+  }
+
+  @override
+  bool shouldRelayout(_ReviewLayout oldDelegate) =>
+      oldDelegate.topMax != topMax || oldDelegate.middleMin != middleMin;
 }

@@ -88,11 +88,15 @@ class TechnicalDetails extends StatelessWidget {
   final VoidCallback? onSaveLog;
   final String saveLogLabel;
 
+  /// Высота окошка с текстом; длиннее — прокручивается.
+  final double maxHeight;
+
   const TechnicalDetails({
     super.key,
     required this.text,
     this.onSaveLog,
     this.saveLogLabel = AppStrings.saveLog,
+    this.maxHeight = 280,
   });
 
   @override
@@ -107,7 +111,7 @@ class TechnicalDetails extends StatelessWidget {
         expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Container(
-            constraints: const BoxConstraints(maxHeight: 280),
+            constraints: BoxConstraints(maxHeight: maxHeight),
             padding: const EdgeInsets.all(8),
             color: theme.colorScheme.surfaceContainerHighest,
             child: SingleChildScrollView(

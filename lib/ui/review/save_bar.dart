@@ -234,7 +234,13 @@ class ReviewErrorPanel extends StatelessWidget {
             if (technical.isNotEmpty)
               Padding(
                 padding: const EdgeInsets.only(left: 34, top: 8, bottom: 8),
-                child: TechnicalDetails(text: technical, onSaveLog: onSaveLog),
+                // Ниже, чем на экране ошибки: полоса сохранения делит
+                // высоту с видео и списком реплик.
+                child: TechnicalDetails(
+                  text: technical,
+                  onSaveLog: onSaveLog,
+                  maxHeight: 140,
+                ),
               ),
           ],
         ),
