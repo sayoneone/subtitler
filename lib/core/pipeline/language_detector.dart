@@ -239,7 +239,8 @@ class LanguageCandidate {
   final double own;
   final double foreign;
 
-  /// Сколько реплик этот язык выиграл.
+  /// Сколько реплик этот язык выиграл. Реплика, на которой лидеры
+  /// сравнялись, не достаётся никому.
   final int votes;
 
   /// Участвовал ли язык в сравнении. `false` — модель не ответила ни на
@@ -396,7 +397,12 @@ LanguageVerdict judgeLanguage(
           lang: lang, text: text, score: f.score, own: f.own, words: f.words));
     }
     perCue.sort((a, b) => _rank(a, b, order));
-    votes[perCue.first.lang] = (votes[perCue.first.lang] ?? 0) + 1;
+    // Ничья по счёту и своим словам — реплика ни за кого не голосует.
+    // Иначе голос отдавал бы порядок языков в настройках, и короткая
+    // реплика из общих слов («pul qani») делала бы ролик «двуязычным».
+    if (perCue.length < 2 || !_tied(perCue[0], perCue[1])) {
+      votes[perCue.first.lang] = (votes[perCue.first.lang] ?? 0) + 1;
+    }
     weightSum += cueWords;
     compared.add(cue);
   }
@@ -485,3 +491,8 @@ int _rank(LanguageCandidate a, LanguageCandidate b, List<String> order) {
   if (byWords != 0) return byWords;
   return order.indexOf(a.lang).compareTo(order.indexOf(b.lang));
 }
+
+/// Равны ли варианты по оценке и доле своих слов — то есть различает их
+/// только число слов или порядок языков, а не текст.
+bool _tied(LanguageCandidate a, LanguageCandidate b) =>
+    (a.score - b.score).abs() < 1e-9 && (a.own - b.own).abs() < 1e-9;

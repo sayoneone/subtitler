@@ -311,6 +311,34 @@ void main() {
           reason: verdict.describe());
     });
 
+    test('Узбекская речь с короткой репликой «pul qani»: выбор уверенный',
+        () {
+      // qani «где?» — общее слово с турецким kanı, «pul» нет ни в одном
+      // словаре. На такой реплике у обеих моделей ровно равный счёт, и
+      // голос за неё не должен доставаться языку, который первым стоит в
+      // настройках: иначе узбекский ролик выглядит как два языка.
+      final verdict = judgeLanguage(
+        byCue({
+          'uz-UZ': [
+            "kecha kechqurun qo'shnimiz eshikni taqillatdi va akamni so'radi",
+            'men unga akam hali ishdan kelmadi dedim keyin u ketdi',
+            'pul qani',
+          ],
+          'tr-TR': [
+            'keçe keçkurun koşnimiz eşikni takıllattı ve akamnı soradı',
+            'men unga akam hali işten kelmedi dedim keyin u ketti',
+            'pul kanı',
+          ],
+        }),
+        // Порядок по умолчанию: при ничьей первым идёт турецкий.
+        candidates: const ['tr-TR', 'uz-UZ'],
+      );
+      expect(verdict.lang, 'uz-UZ', reason: verdict.describe());
+      expect(verdict.mixed, isFalse, reason: verdict.describe());
+      expect(verdict.confidence, LanguageConfidence.high,
+          reason: verdict.describe());
+    });
+
     test('Узбекские приветствия на -misiz: турецкий не выбирается', () {
       final verdict = judgeLanguage(byCue({
         'uz-UZ': [
