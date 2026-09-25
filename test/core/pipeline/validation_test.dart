@@ -33,7 +33,7 @@ void main() {
   test('Зацикленный повтор токена ловится с четвёртого раза', () {
     expect(hasRepeatLoop('beramiz beramiz beramiz beramiz'), isTrue);
     expect(hasRepeatLoop('beramiz beramiz beramiz'), isFalse);
-    expect(hasRepeatLoop('bu niye çok sulu bir hava'), isFalse);
+    expect(hasRepeatLoop('bu akşam biraz geç kalırım'), isFalse);
   });
 
   test('Повтор регистронезависим и не путается на пунктуации', () {

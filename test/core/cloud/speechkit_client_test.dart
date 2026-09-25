@@ -11,14 +11,14 @@ void main() {
   late String baseUrl;
   late List<HttpRequest> received;
   int Function() nextStatus = () => 200;
-  String Function() nextBody = () => '{"result":"tam 12 saat var"}';
+  String Function() nextBody = () => '{"result":"kargo 3 gün sonra gelir"}';
 
   setUp(() async {
     received = [];
     // Сбрасываем ответ сервера: иначе тест, выставивший 500, ломал бы
     // все следующие, и результат зависел бы от порядка запуска.
     nextStatus = () => 200;
-    nextBody = () => '{"result":"tam 12 saat var"}';
+    nextBody = () => '{"result":"kargo 3 gün sonra gelir"}';
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     baseUrl = 'http://127.0.0.1:${server.port}';
     server.listen((request) async {
@@ -53,7 +53,7 @@ void main() {
   test('Успешный ответ отдаёт распознанный текст', () async {
     final text = await client().recognize(
         oggBytes: utf8.encode('ogg'), lang: 'tr-TR');
-    expect(text, 'tam 12 saat var');
+    expect(text, 'kargo 3 gün sonra gelir');
   });
 
   test('Отсутствие речи — пустая строка, а не ошибка', () async {

@@ -382,12 +382,12 @@ void main() {
       // нет. Русская модель на турецкой речи не услышала ничего.
       final (pipeline, stt) = scripted({
         'tr-TR': {
-          1: 'tam on iki saat var',
+          1: 'masada on beş kalem var',
           2: 'yarın sabah erkenden çarşıya gideceğiz',
           3: 'akşam vardiyası başladı',
         },
         'uz-UZ': {
-          1: 'tam onikki soat bor',
+          1: 'masada onbesh qalam bor',
           2: 'yarin sabah erkandan charshiga gidajakmiz',
           3: 'aqsham vardiyasi boshladi',
         },

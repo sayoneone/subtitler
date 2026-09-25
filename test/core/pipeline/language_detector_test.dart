@@ -91,7 +91,7 @@ void main() {
 
     test('Турецкий текст со своими словами и окончаниями оценивается высоко',
         () {
-      const text = 'makine çalışırken su yüzeye çıkıyor ağabey öyle olur';
+      const text = 'biz eve dönerken yağmur yağıyor ama şemsiye yok';
       expect(scoreLanguage(text, 'tr-TR'), greaterThan(0.5));
     });
   });
@@ -150,8 +150,8 @@ void main() {
     // передаётся дальше — в сессию и в жёлтую плашку редактора.
     test('Короткая реплика без зацепок: выбран лидер, уверенность низкая', () {
       final verdict = judgeLanguage(byCue({
-        'tr-TR': ['tam on iki saat var'],
-        'uz-UZ': ['tam onikki soat bor'],
+        'tr-TR': ['masada on beş kalem var'],
+        'uz-UZ': ['masada onbesh qalam bor'],
       }));
       expect(verdict.lang, 'tr-TR');
       expect(verdict.confidence, LanguageConfidence.low,
@@ -302,8 +302,8 @@ void main() {
 
     test('Строка для журнала содержит числа, а не только язык', () {
       final verdict = judgeLanguage(byCue({
-        'tr-TR': ['tam on iki saat var'],
-        'uz-UZ': ['tam onikki soat bor'],
+        'tr-TR': ['masada on beş kalem var'],
+        'uz-UZ': ['masada onbesh qalam bor'],
       }));
       expect(verdict.describe(), allOf(contains('tr-TR'), contains('uz-UZ'),
           contains('отрыв'), contains('неуверенно')));
