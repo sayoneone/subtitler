@@ -3,6 +3,8 @@
 #include <dwmapi.h>
 #include <flutter_windows.h>
 
+#include <algorithm>
+
 #include "resource.h"
 
 namespace {
@@ -134,10 +136,30 @@ bool Win32Window::Create(const std::wstring& title,
   UINT dpi = FlutterDesktopGetDpiForMonitor(monitor);
   double scale_factor = dpi / 96.0;
 
+  int x = Scale(origin.x, scale_factor);
+  int y = Scale(origin.y, scale_factor);
+  int width = Scale(size.width, scale_factor);
+  int height = Scale(size.height, scale_factor);
+  // The scaled size may not fit the screen: 1280x720 at 150% is 1920x1080,
+  // the whole of a Full HD laptop screen, and the bottom of the window (the
+  // "save" button) would hide under the taskbar. Keep the window within the
+  // monitor's work area (the screen without the taskbar) and center it
+  // there. The process is Per-Monitor V2 DPI aware (runner.exe.manifest), so
+  // rcWork is in physical pixels, the same units as the scaled size.
+  MONITORINFO monitor_info{};
+  monitor_info.cbSize = sizeof(monitor_info);
+  if (GetMonitorInfo(monitor, &monitor_info)) {
+    const RECT& work = monitor_info.rcWork;
+    const int work_width = static_cast<int>(work.right - work.left);
+    const int work_height = static_cast<int>(work.bottom - work.top);
+    width = std::min(width, work_width);
+    height = std::min(height, work_height);
+    x = static_cast<int>(work.left) + (work_width - width) / 2;
+    y = static_cast<int>(work.top) + (work_height - height) / 2;
+  }
+
   HWND window = CreateWindow(
-      window_class, title.c_str(), WS_OVERLAPPEDWINDOW,
-      Scale(origin.x, scale_factor), Scale(origin.y, scale_factor),
-      Scale(size.width, scale_factor), Scale(size.height, scale_factor),
+      window_class, title.c_str(), WS_OVERLAPPEDWINDOW, x, y, width, height,
       nullptr, nullptr, GetModuleHandle(nullptr), this);
 
   if (!window) {
