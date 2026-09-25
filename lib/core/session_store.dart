@@ -56,8 +56,11 @@ class SessionStore {
   /// Возвращает сессию, только если отпечаток совпал с [actual]; если
   /// подходят и файл рядом с видео, и запасной — более свежий.
   /// Сессии прежних схем читаются (см. [Session.fromJson]).
+  ///
+  /// Сессия привязывается к [videoPath] — пути, по которому её открыли,
+  /// а не к записанному внутри JSON (см. [_loadFreshest]).
   Future<Session?> load(String videoPath, SourceFingerprint actual) =>
-      _loadFreshest([
+      _loadFreshest(videoPath, [
         sessionPathFor(videoPath),
         fallbackPathFor(videoPath),
         _legacyFallbackPathFor(videoPath),
@@ -84,7 +87,7 @@ class SessionStore {
     String lang,
     SourceFingerprint actual,
   ) async {
-    final session = await _loadFreshest([
+    final session = await _loadFreshest(videoPath, [
       backupPathFor(videoPath, lang),
       fallbackBackupPathFor(videoPath, lang),
       _legacyFallbackBackupPathFor(videoPath, lang),
@@ -116,6 +119,9 @@ class SessionStore {
   /// Язык теперь выбран человеком: уверенность сбрасывается в `null`,
   /// вторым языком становится тот, с которого переключились. Пробы обеих
   /// сессий объединяются — за все уже заплачено.
+  ///
+  /// Копия ищется и пишется по `current.videoPath`, восстановленная
+  /// сессия привязана к нему же.
   Future<Session?> swapWithBackup(Session current, String lang) async {
     if (lang == current.lang) return null;
     final backup =
@@ -142,8 +148,17 @@ class SessionStore {
   /// время изменения файла. На Windows Dart отдаёт его с точностью до
   /// секунды (проверено прогоном); при равенстве берётся файл, стоящий в
   /// [paths] раньше, — обычное место рядом с видео.
-  Future<Session?> _loadFreshest(
-      List<String> paths, SourceFingerprint actual) async {
+  ///
+  /// Возвращённая сессия привязана к [videoPath]. Отпечаток — только размер
+  /// и длительность, путь в него не входит: сессия подходит и видео,
+  /// которое перенесли вместе с ней (скопировали папку дела, флешка
+  /// получила другую букву диска). Внутри JSON при этом прежний путь, и
+  /// всё, что пишется по `session.videoPath`, — правки, .srt, резервные
+  /// копии языков — уходило бы к прежнему месту: в чужую копию вещдока
+  /// или, если его уже нет, в запасную папку с ложной плашкой «рядом с
+  /// видео записать нельзя».
+  Future<Session?> _loadFreshest(String videoPath, List<String> paths,
+      SourceFingerprint actual) async {
     Session? freshest;
     DateTime? freshestTime;
     for (final path in paths) {
@@ -165,7 +180,7 @@ class SessionStore {
         freshestTime = stat.modified;
       }
     }
-    return freshest;
+    return freshest?.copyWith(videoPath: videoPath);
   }
 
   Future<String> _write(Session session, String primary, String fallback) async {

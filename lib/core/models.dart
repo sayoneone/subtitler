@@ -153,7 +153,11 @@ class Session {
 
   /// [langConfidence] и [langRunnerUp] можно сбросить в `null`, передав
   /// `null` явно; не переданные поля остаются как были.
+  ///
+  /// [videoPath] меняется, когда сессию открыли по другому пути, чем
+  /// записали: папку дела скопировали, флешка получила другую букву.
   Session copyWith({
+    String? videoPath,
     List<Cue>? cues,
     String? lang,
     Object? langConfidence = _keep,
@@ -164,7 +168,7 @@ class Session {
   }) =>
       Session(
         schemaVersion: schemaVersion,
-        videoPath: videoPath,
+        videoPath: videoPath ?? this.videoPath,
         fingerprint: fingerprint,
         lang: lang ?? this.lang,
         langConfidence: identical(langConfidence, _keep)

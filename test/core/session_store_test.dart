@@ -413,6 +413,58 @@ void main() {
     });
   });
 
+  group('Видео перенесли вместе с сессией', () {
+    const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+
+    // Папку дела скопировали (или флешка получила другую букву диска):
+    // видео и файлы сессии лежат по новому пути, внутри JSON — прежний.
+    late String videoA;
+    late String videoB;
+    setUp(() {
+      videoA = '${(Directory('${tmp.path}/E')..createSync()).path}/VID.mp4';
+      videoB = '${(Directory('${tmp.path}/F')..createSync()).path}/VID.mp4';
+    });
+
+    test('Сессия привязывается к пути, по которому её открыли, и пишется '
+        'туда же', () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(videoA));
+      File('$videoA.subtitler.json').copySync('$videoB.subtitler.json');
+      final beforeA = File('$videoA.subtitler.json').readAsStringSync();
+
+      final loaded = await store.load(videoB, fp);
+      expect(loaded!.videoPath, videoB);
+
+      final saved = await store.save(loaded.copyWith(cues: const [
+        Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
+            ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+      ]));
+      expect(saved, '$videoB.subtitler.json');
+      expect((await store.load(videoB, fp))!.cues.single.ru,
+          'правка следователя');
+      expect(File('$videoA.subtitler.json').readAsStringSync(), beforeA,
+          reason: 'прежняя копия вещдока не тронута');
+    });
+
+    test('Резервная копия языка — тоже по новому пути', () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(videoA));
+      await store.saveBackup(sessionFor(videoA).copyWith(lang: 'uz-UZ'));
+      for (final name in ['subtitler.json', 'subtitler.uz-UZ.json']) {
+        File('$videoA.$name').copySync('$videoB.$name');
+      }
+
+      expect((await store.loadBackup(videoB, 'uz-UZ', fp))!.videoPath, videoB);
+      final current = (await store.load(videoB, fp))!;
+      final restored = await store.swapWithBackup(current, 'uz-UZ');
+      expect(restored!.videoPath, videoB);
+      expect((await store.load(videoB, fp))!.lang, 'uz-UZ',
+          reason: 'восстановленная копия стала основной сессией у B');
+      expect((await store.load(videoA, fp))!.lang, 'tr-TR',
+          reason: 'у A ничего не поменялось');
+    });
+  });
+
   test('Битый JSON не роняет приложение', () async {
     final video = '${tmp.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));

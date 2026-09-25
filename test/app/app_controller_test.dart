@@ -623,6 +623,62 @@ void main() {
           contains('правка следователя'));
     });
 
+    test('Видео перенесли вместе с сессией — правки пишутся к новому месту',
+        () async {
+      final (h, stt, videoA) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(videoA);
+      expect(c.stage, AppStage.review);
+      await c.goHome();
+
+      // Папку дела скопировали: видео и его сессия лежат по новому пути,
+      // прежняя копия осталась на месте.
+      final videoB = h.copyVideo(videoA,
+          folder: 'копия дела', name: p.basename(videoA));
+      File('$videoA.subtitler.json').copySync('$videoB.subtitler.json');
+      final sessionA = File('$videoA.subtitler.json').readAsStringSync();
+      final srtA = File(beside(videoA, '_ru.srt')).readAsStringSync();
+
+      stt.calls.clear();
+      await c.openVideo(videoB);
+      expect(c.stage, AppStage.review);
+      expect(stt.calls, isEmpty, reason: 'сессия подошла по отпечатку');
+      c.updateTranslation(1, 'правка следователя');
+      await c.flush();
+
+      expect(sessionOnDisk(videoB).cues.first.ru, 'правка следователя');
+      expect(File(beside(videoB, '_ru.srt')).readAsStringSync(),
+          contains('правка следователя'));
+      expect(File('$videoA.subtitler.json').readAsStringSync(), sessionA,
+          reason: 'правка не должна уходить к чужой копии вещдока');
+      expect(File(beside(videoA, '_ru.srt')).readAsStringSync(), srtA);
+
+      await c.goHome();
+      await c.openVideo(videoB);
+      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(stt.calls, isEmpty);
+    });
+
+    test('Прежнего места видео больше нет — плашки «записать нельзя» нет',
+        () async {
+      final (h, _, videoA) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(videoA);
+      await c.goHome();
+
+      // Флешка стала другим диском: по старому пути ничего нет.
+      final videoB = h.copyVideo(videoA,
+          folder: 'флешка', name: p.basename(videoA));
+      File('$videoA.subtitler.json').copySync('$videoB.subtitler.json');
+      Directory(p.dirname(videoA)).deleteSync(recursive: true);
+
+      await c.openVideo(videoB);
+      expect(c.stage, AppStage.review);
+      expect(c.outputInFallback, isFalse,
+          reason: 'рядом с видео писать можно — ложная плашка путает');
+      expect(File(beside(videoB, '_ru.srt')).existsSync(), isTrue);
+    });
+
     // Дефект 3: «Вшить» сразу после правки брал с диска старый SRT —
     // правка попадала туда только через 700 мс.
     test('Сохранение сразу после правки берёт свежий текст', () async {

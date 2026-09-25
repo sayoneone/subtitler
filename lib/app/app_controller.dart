@@ -990,15 +990,21 @@ class AppController extends ChangeNotifier {
     _stage = AppStage.review;
     _resetSave();
     await _refreshBackups();
-    await _writeSrtsQuietly(session);
+    await _writeSrtsQuietly(_videoFor(session), session);
   }
+
+  /// Куда писать сессию, .srt и резервные копии: путь открытого видео, а
+  /// не записанный в сессии. Видео могли перенести вместе с сессией
+  /// (скопировали папку дела, флешка получила другую букву) — тогда в
+  /// JSON прежний путь, и запись ушла бы в чужую копию вещдока.
+  String _videoFor(Session session) => _videoPath ?? session.videoPath;
 
   Future<void> _refreshBackups() async {
     final session = _session;
     if (session == null) return;
     try {
       _backupLangs = await _sessionStore!
-          .backupLanguages(session.videoPath, session.fingerprint);
+          .backupLanguages(_videoFor(session), session.fingerprint);
     } catch (e) {
       log.warn('Не удалось проверить резервные копии: $e');
       _backupLangs = {};
@@ -1054,8 +1060,9 @@ class AppController extends ChangeNotifier {
   /// этапе [AppStage.processing]; текущий вариант с правками уходит в
   /// резервную копию, и к нему можно вернуться бесплатно.
   Future<void> switchLanguage(String lang) async {
-    final current = _session;
     final video = _videoPath;
+    // Копии ищутся и пишутся по пути открытого видео (см. [_videoFor]).
+    final current = _session?.copyWith(videoPath: video);
     if (_stage != AppStage.review || current == null || video == null) return;
     if (isBusy || lang == current.lang || languageByCode(lang) == null) return;
 
@@ -1183,18 +1190,19 @@ class AppController extends ChangeNotifier {
     final session = _session;
     if (_dirty && session != null) {
       _dirty = false;
-      _writes = _writes.then((_) => _writeEdits(session));
+      final video = _videoFor(session);
+      _writes = _writes.then((_) => _writeEdits(video, session));
     }
     return _writes;
   }
 
-  Future<void> _writeEdits(Session session) async {
+  Future<void> _writeEdits(String video, Session session) async {
     try {
-      await _sessionStore!.save(session);
+      await _sessionStore!.save(session.copyWith(videoPath: video));
     } catch (e) {
       log.warn('Не удалось записать сессию: $e');
     }
-    await _writeSrtsQuietly(session);
+    await _writeSrtsQuietly(video, session);
   }
 
   OutputFiles _outputsFor(String video) => OutputFiles(
@@ -1203,9 +1211,9 @@ class AppController extends ChangeNotifier {
         log: log,
       );
 
-  Future<void> _writeSrtsQuietly(Session session) async {
+  Future<void> _writeSrtsQuietly(String video, Session session) async {
     try {
-      _srtFiles = await _outputsFor(session.videoPath).writeSrts(session.cues);
+      _srtFiles = await _outputsFor(video).writeSrts(session.cues);
     } catch (e) {
       // Не повод останавливать работу: при сохранении видео запись
       // повторится, и тогда человек увидит понятную ошибку.
