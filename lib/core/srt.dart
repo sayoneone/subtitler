@@ -25,13 +25,22 @@ double parseSrtTimestamp(String value) {
 String _textOf(Cue cue, SrtField field) =>
     field == SrtField.orig ? cue.orig : cue.ru;
 
+/// Текст реплики [cue] в субтитрах; пустая строка — реплики в субтитрах
+/// нет.
+///
+/// Одно правило на всех: по нему [buildSrt] решает, попадёт ли реплика в
+/// файл (и во вшивание), а оверлей предпросмотра (`isCueVisible`) — есть
+/// ли она в кадре. Статус реплики не важен: вписанный человеком текст
+/// вшивается при любом статусе, значит, и виден должен быть.
+String subtitleText(Cue cue, SrtField field) => _textOf(cue, field).trim();
+
 /// Собирает SRT из реплик. Реплики с пустым текстом пропускаются,
 /// номера блоков идут подряд без дыр.
 String buildSrt(List<Cue> cues, {required SrtField field}) {
   final buffer = StringBuffer();
   var number = 1;
   for (final cue in cues) {
-    final text = _textOf(cue, field).trim();
+    final text = subtitleText(cue, field);
     if (text.isEmpty) continue;
     buffer
       ..writeln(number)

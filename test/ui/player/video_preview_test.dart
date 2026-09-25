@@ -76,13 +76,13 @@ void main() {
     expect(shownText(tester), isNull);
   });
 
-  testWidgets('«речи нет» и пустой перевод в кадр не попадают',
-      (tester) async {
+  testWidgets('пустой перевод в кадр не попадает, «речи нет» с текстом — '
+      'попадает, как и во вшивание', (tester) async {
     final player = FakePreviewPlayer()..loaded();
     await pumpPreview(tester, player, _cues);
 
-    await at(tester, player, 6000); // empty с остатком текста
-    expect(shownText(tester), isNull);
+    await at(tester, player, 6000); // empty с текстом: его вшивание покажет
+    expect(shownText(tester), 'Остаток');
     await at(tester, player, 8000); // перевод из одних пробелов
     expect(shownText(tester), isNull);
   });

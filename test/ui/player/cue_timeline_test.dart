@@ -3,6 +3,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/core/cue_timeline.dart';
 import 'package:subtitler/core/models.dart';
+import 'package:subtitler/core/srt.dart';
 
 Cue cue(
   int index,
@@ -79,11 +80,35 @@ void main() {
     expect(CueTimeline(const []).at(ms(1000)), isNull);
   });
 
-  test('реплика «речи нет» не показывается, даже с текстом', () {
+  test('реплика «речи нет» с текстом показывается: вшивание её покажет', () {
+    // Так бывает: реплика не распозналась, человек вписал текст, а при
+    // повторном открытии видео распознавание вернуло пустоту — статус
+    // стал «речи нет», текст остался. В готовом видео он есть, значит,
+    // и в кадре предпросмотра должен быть.
     final timeline = CueTimeline([
-      cue(1, 0, 2, 'Остаток текста', status: CueStatus.empty),
+      cue(1, 0, 2, 'Вписано вручную', status: CueStatus.empty),
     ]);
-    expect(timeline.at(ms(1000)), isNull);
+    expect(timeline.at(ms(1000))?.ru, 'Вписано вручную');
+  });
+
+  test('оверлей показывает ровно те реплики, что уходят во вшивание', () {
+    // Правило одно на двоих: иначе в кадре предпросмотра и в готовом
+    // видео оказались бы разные реплики.
+    final cues = [
+      cue(1, 0, 1, 'Обычная'),
+      cue(2, 1, 2, 'Вписано вручную', status: CueStatus.empty),
+      cue(3, 2, 3, '', status: CueStatus.empty),
+      cue(4, 3, 4, '  \n '),
+      cue(5, 4, 5, 'Не распознано, но вписано', status: CueStatus.failed),
+      cue(6, 5, 6, '', status: CueStatus.pending),
+      cue(7, 6, 7, 'Ждёт распознавания, но вписано',
+          status: CueStatus.pending),
+    ];
+    final burned = parseSrt(buildSrt(cues, field: SrtField.ru));
+    final shown = CueTimeline(cues).visible;
+    expect(shown.map((c) => c.range.start),
+        burned.map((c) => c.range.start));
+    expect(shown.map((c) => c.ru.trim()), burned.map((c) => c.ru));
   });
 
   test('пустой и пробельный перевод не показываются', () {
