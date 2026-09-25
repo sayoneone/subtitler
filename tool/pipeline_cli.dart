@@ -78,10 +78,11 @@ Future<void> main(List<String> args) async {
     exit(3);
   }
 
-  final firstVisible = session.cues.firstWhere(
-    (c) => c.ru.trim().isNotEmpty,
-    orElse: () => session.cues.first,
-  );
+  final checkAt = visibilityCheckPoint(session.cues);
+  if (checkAt == null) {
+    stderr.writeln('Вшивать нечего: ни у одной реплики нет перевода.');
+    exit(3);
+  }
   final output = '${base}_ru.mp4';
 
   try {
@@ -90,7 +91,7 @@ Future<void> main(List<String> args) async {
       srtPath: ruSrtPath,
       fontsDir: 'assets/fonts',
       output: output,
-      checkAtSeconds: (firstVisible.range.start + firstVisible.range.end) / 2,
+      checkAtSeconds: checkAt,
     );
   } on SubtitlesInvisibleException catch (e) {
     stderr.writeln(e);

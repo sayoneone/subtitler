@@ -81,5 +81,16 @@ void main() {
     expect(args, containsAllInOrder(['-f', 'rawvideo']));
     expect(args.last, 'band.gray',
         reason: 'пишем в файл, а не в stdout: так работает и Android-раннер');
+    expect(args.indexOf('-ss'), lessThan(args.indexOf('-i')),
+        reason: 'по умолчанию — быстрая перемотка до открытия файла');
+  });
+
+  test('Точная перемотка ставит -ss после -i', () {
+    // Для MPEG-TS с редкими ключевыми кадрами: быстрая перемотка там
+    // кадра не находит.
+    final args = FfmpegCommands.grayBand(
+        input: 'v.ts', atSeconds: 3, output: 'band.gray', exactSeek: true);
+    expect(args.indexOf('-ss'), greaterThan(args.indexOf('-i')));
+    expect(args, containsAllInOrder(['-ss', '3.00']));
   });
 }

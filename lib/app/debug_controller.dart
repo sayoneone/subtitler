@@ -564,14 +564,14 @@ class DebugController extends ChangeNotifier {
 
     try {
       final current = session!;
-      final first = current.cues.firstWhere((c) => c.ru.trim().isNotEmpty);
+      final checkAt = visibilityCheckPoint(current.cues)!;
       final output = '${_base}_ru.mp4';
-      await SubtitleBurner(_runner()).burnAndVerify(
+      final check = await SubtitleBurner(_runner()).burnAndVerify(
         input: videoPath!,
         srtPath: '${_base}_ru.srt',
         fontsDir: runtime!.fontsDir,
         output: output,
-        checkAtSeconds: (first.range.start + first.range.end) / 2,
+        checkAtSeconds: checkAt,
         onProgress: (seconds) {
           progress = PipelineProgress(PipelineStage.done,
               done: seconds.round(), total: 0);
@@ -579,7 +579,7 @@ class DebugController extends ChangeNotifier {
         },
       );
       burnedPath = output;
-      log.info('Вшито: $output — субтитры в кадре видны');
+      log.info('Вшито: $output — субтитры в кадре видны (${check.describe()})');
     } catch (e) {
       lastError = '$e';
       log.error('Вшивание не удалось: $e');

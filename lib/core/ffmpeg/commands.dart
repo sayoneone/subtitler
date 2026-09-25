@@ -82,17 +82,49 @@ class FfmpegCommands {
   /// вход для проверки, что субтитры действительно нарисовались.
   /// Пишем в файл, а не в stdout: библиотечный раннер на Android
   /// не отдаёт поток вывода наружу.
+  ///
+  /// [exactSeek]: `-ss` до `-i` — быстрая перемотка по индексу, и в
+  /// MPEG-TS с редкими ключевыми кадрами она не находит кадр вовсе (файл
+  /// выходит пустым). `-ss` после `-i` декодирует с начала: медленнее,
+  /// зато кадр будет всегда.
+  /// Все кадры отрезка [fromSeconds, fromSeconds + durationSeconds] той же
+  /// нижней полосой, подряд в одном файле. Нужны для сравнения с кадром
+  /// вшитого ролика: один и тот же момент в исходнике и в перекодированном
+  /// файле может прийтись на соседние кадры.
+  static List<String> grayWindow({
+    required String input,
+    required double fromSeconds,
+    required double durationSeconds,
+    required String output,
+    bool exactSeek = false,
+  }) {
+    final seek = ['-ss', fromSeconds.toStringAsFixed(2)];
+    return [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      if (!exactSeek) ...seek,
+      '-i', input,
+      if (exactSeek) ...seek,
+      '-t', durationSeconds.toStringAsFixed(2),
+      '-vf', 'crop=iw:ih*0.2:0:ih*0.8,format=gray',
+      '-f', 'rawvideo', output,
+    ];
+  }
+
   static List<String> grayBand({
     required String input,
     required double atSeconds,
     required String output,
-  }) =>
-      [
-        '-y', '-hide_banner', '-loglevel', 'error',
-        '-ss', atSeconds.toStringAsFixed(2),
-        '-i', input,
-        '-vf', 'crop=iw:ih*0.2:0:ih*0.8,format=gray',
-        '-frames:v', '1',
-        '-f', 'rawvideo', output,
-      ];
+    bool exactSeek = false,
+  }) {
+    final seek = ['-ss', atSeconds.toStringAsFixed(2)];
+    return [
+      '-y', '-hide_banner', '-loglevel', 'error',
+      if (!exactSeek) ...seek,
+      '-i', input,
+      if (exactSeek) ...seek,
+      '-vf', 'crop=iw:ih*0.2:0:ih*0.8,format=gray',
+      '-frames:v', '1',
+      '-f', 'rawvideo', output,
+    ];
+  }
 }
