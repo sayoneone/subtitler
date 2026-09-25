@@ -508,6 +508,54 @@ void main() {
     });
   });
 
+  test('Папка только на чтение — резервные копии языков в запасной папке, '
+      'возврат к прежнему языку бесплатный и с правками', () async {
+    const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+    // Видео обработали и переключали язык, пока в папку можно было писать,
+    // потом папку записали на диск или защитили от записи.
+    final folder = Directory('${tmp.path}/ro')..createSync();
+    final video = '${folder.path}/clip.mp4';
+    final store = SessionStore(fallbackDir: fallback.path);
+    Session withRu(Session s, String ru) => s.copyWith(cues: [
+          s.cues.single.copyWith(ru: ru),
+        ]);
+    final turkish = sessionFor(video);
+    final uzbek = sessionFor(video).copyWith(lang: 'uz-UZ');
+    final beside = [
+      await store.save(turkish),
+      await store.saveBackup(turkish),
+      await store.saveBackup(uzbek),
+    ];
+    final yesterday = DateTime.now().subtract(const Duration(days: 1));
+    for (final path in beside) {
+      File(path).setLastModifiedSync(yesterday);
+    }
+    addTearDown(protectFolder(folder.path, beside));
+
+    // Поправили турецкий вариант и переключились на узбекский.
+    final edited = withRu(turkish, 'правка турецкого варианта');
+    final restored = await store.swapWithBackup(edited, 'uz-UZ');
+    expect(restored!.lang, 'uz-UZ');
+
+    expect(File(store.fallbackBackupPathFor(video, 'tr-TR')).existsSync(),
+        isTrue, reason: 'копия турецкого — в запасной папке');
+    expect((await store.loadBackup(video, 'tr-TR', fp))!.cues.single.ru,
+        'правка турецкого варианта');
+    expect(await store.backupLanguages(video, fp), {'tr-TR', 'uz-UZ'});
+    expect((await store.load(video, fp))!.lang, 'uz-UZ',
+        reason: 'основная сессия — тоже в запасной папке');
+
+    // Обратно на турецкий — бесплатно и вместе с правкой.
+    final back = await store.swapWithBackup(restored, 'tr-TR');
+    expect(back!.cues.single.ru, 'правка турецкого варианта');
+    expect((await store.load(video, fp))!.lang, 'tr-TR');
+    expect(folder.listSync().map((e) => p.basename(e.path)).toSet(), {
+      'clip.mp4.subtitler.json',
+      'clip.mp4.subtitler.tr-TR.json',
+      'clip.mp4.subtitler.uz-UZ.json',
+    }, reason: 'в защищённой папке ничего не появилось и не пропало');
+  });
+
   test('Битый JSON не роняет приложение', () async {
     final video = '${tmp.path}/clip.mp4';
     File(video).writeAsBytesSync(List.filled(100, 0));
