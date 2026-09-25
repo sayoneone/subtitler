@@ -22,6 +22,12 @@ export '../models.dart' show LanguageConfidence;
 
 const double kWeightOwn = 1.0;
 const double kWeightOwnSuffix = 0.5;
+
+/// «Чужое» слово весит столько же, сколько «своё»: калька слов соседа —
+/// главный признак чужой речи. Ложных «чужих» — слов, обычных в обоих
+/// языках, — убирает не вес, а общий список в lexicon.dart: на выдуманных
+/// примерах вес 0.5 без списка ошибку не исправлял, а отрыв на верных
+/// примерах сокращал на 15–20 %.
 const double kWeightForeign = 1.0;
 const double kWeightForeignSuffix = 0.5;
 

@@ -48,6 +48,30 @@ void main() {
       expect(f.own, 1);
     });
 
+    test('Слово своего языка не считается чужим, даже если оно есть у соседа',
+        () {
+      // Каждое из этих слов — обычное слово и узбекского, и турецкого:
+      // ya'ni/yani «то есть», qarshi/karşı «против», ona «мать» / «ему»,
+      // qara «смотри» / kara «чёрный», oy «месяц» / «голос на выборах»…
+      // Модель, которая написала его своими буквами, ничего чужого не
+      // услышала.
+      const uzbek = [
+        "ya'ni", 'biri', 'beri', 'qarshi', 'yedi', 'ki', 'ona', 'sana', //
+        'bari', 'kimi', "yo'qsa", 'da',
+      ];
+      const turkish = [
+        'ana', 'kara', 'ha', 'yo', 'halı', 'şart', 'sarı', 'oy', 'öz', 'yana',
+      ];
+      for (final word in uzbek) {
+        expect(languageFeatures(word, 'uz-UZ', against: ['tr-TR']).foreign, 0,
+            reason: word);
+      }
+      for (final word in turkish) {
+        expect(languageFeatures(word, 'tr-TR', against: ['uz-UZ']).foreign, 0,
+            reason: word);
+      }
+    });
+
     test('Чужое окончание работает против варианта', () {
       final f = languageFeatures('chiqiyorum', 'uz-UZ', against: ['tr-TR']);
       expect(f.foreignSuffix, 1);
@@ -128,6 +152,59 @@ void main() {
       expect(verdict.lang, 'uz-UZ');
       expect(verdict.confidence, LanguageConfidence.high);
       expect(verdict.runnerUp, 'tr-TR');
+    });
+
+    test('Узбекская речь со словами, общими с турецким: турецкий не выбирается',
+        () {
+      // Говорящий через слово вставляет «ya'ni», в речи — beri, biri, qarshi.
+      // Турецкая модель пишет их как свои yani, beri, biri, karşı — и это
+      // правда турецкие слова, но и узбекские тоже: перевешивать они не
+      // должны.
+      final verdict = judgeLanguage(byCue({
+        'uz-UZ': [
+          "ya'ni biz kecha bozorga bordik ya'ni u yerda qo'shnilardan biri "
+              'bor edi',
+          "o'shandan beri ya'ni u bizga qarshi ya'ni hech narsa demadi",
+        ],
+        'tr-TR': [
+          'yani biz keçe bazarga bardık yani u yerde koşnilardan biri bar edi',
+          'oşandan beri yani u bizge karşı yani hiç narsa demedi',
+        ],
+      }));
+      expect(verdict.lang, 'uz-UZ', reason: verdict.describe());
+    });
+
+    test('Турецкая речь со словами, общими с узбекским: узбекский не выбирается',
+        () {
+      final verdict = judgeLanguage(byCue({
+        'tr-TR': [
+          'ha tamam öz kardeşim yarın sarı halıyı ana yoldaki dükkana '
+              'götürecek',
+          'yo şart değil yıllardan bu yana oy vermeye kara arabayla gideriz',
+        ],
+        'uz-UZ': [
+          "ha tamom o'z qardoshim yarin sari xaliyi ana yo'ldagi dukkona "
+              'goturajak',
+          'yo shart degil yillardan bu yana oy bermaga qara arabayla gidariz',
+        ],
+      }));
+      expect(verdict.lang, 'tr-TR', reason: verdict.describe());
+    });
+
+    test('Одинаковый текст у обеих моделей: уверенного выбора нет', () {
+      // Обе модели услышали одно и то же и записали одинаково — по такому
+      // тексту язык не определить, в какой бы словарь ни попали слова.
+      final texts = [
+        ['kim yedi biri yedi biri beri yedi', 'bu kim ki siz mi biz mi'],
+        ['ha ana bu oy hali yo bu oy', 'ha ana biz mi siz mi bari'],
+      ];
+      for (final cues in texts) {
+        final verdict = judgeLanguage(byCue({'uz-UZ': cues, 'tr-TR': cues}));
+        expect(verdict.confidence, LanguageConfidence.low,
+            reason: verdict.describe());
+        expect(verdict.gap, lessThan(kHighConfidenceGap),
+            reason: verdict.describe());
+      }
     });
 
     test('Узбекский в новом алфавите (ş ç ö ğ) не принимается за турецкий',
