@@ -11,7 +11,7 @@ void main() {
   test('Cue переживает сериализацию без потерь', () {
     const cue = Cue(
       index: 3,
-      range: TimeRange(7.52, 13.23),
+      range: TimeRange(9.03, 14.6),
       orig: 'sabah vardiyası başladı',
       ru: 'Утренняя смена началась',
       status: CueStatus.ok,
@@ -19,8 +19,8 @@ void main() {
     );
     final restored = Cue.fromJson(cue.toJson());
     expect(restored.index, 3);
-    expect(restored.range.start, closeTo(7.52, 1e-9));
-    expect(restored.range.end, closeTo(13.23, 1e-9));
+    expect(restored.range.start, closeTo(9.03, 1e-9));
+    expect(restored.range.end, closeTo(14.6, 1e-9));
     expect(restored.orig, cue.orig);
     expect(restored.ru, cue.ru);
     expect(restored.status, CueStatus.ok);
@@ -28,9 +28,9 @@ void main() {
   });
 
   test('Отпечаток совпадает при равных размере и длительности', () {
-    const a = SourceFingerprint(sizeBytes: 6571302, durationSec: 34.80);
-    const b = SourceFingerprint(sizeBytes: 6571302, durationSec: 34.801);
-    const c = SourceFingerprint(sizeBytes: 6571303, durationSec: 34.80);
+    const a = SourceFingerprint(sizeBytes: 4812907, durationSec: 41.20);
+    const b = SourceFingerprint(sizeBytes: 4812907, durationSec: 41.201);
+    const c = SourceFingerprint(sizeBytes: 4812908, durationSec: 41.20);
     expect(a.matches(b), isTrue, reason: 'разница длительности < 0.01 с');
     expect(a.matches(c), isFalse, reason: 'другой размер файла');
   });

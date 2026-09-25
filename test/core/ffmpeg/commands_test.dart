@@ -33,9 +33,9 @@ void main() {
 
   test('Команда нарезки задаёт границы и OggOpus 64k моно', () {
     final args = FfmpegCommands.cutSegment(
-        input: 'a.wav', output: 's.ogg', start: 7.52, end: 13.23);
-    expect(args, containsAllInOrder(['-ss', '7.52']));
-    expect(args, containsAllInOrder(['-to', '13.23']));
+        input: 'a.wav', output: 's.ogg', start: 9.03, end: 14.61);
+    expect(args, containsAllInOrder(['-ss', '9.03']));
+    expect(args, containsAllInOrder(['-to', '14.61']));
     expect(args, containsAllInOrder(['-c:a', 'libopus']));
     expect(args, containsAllInOrder(['-b:a', '64k']));
     expect(args, containsAllInOrder(['-ac', '1']));

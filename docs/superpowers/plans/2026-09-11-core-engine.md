@@ -258,7 +258,7 @@ void main() {
   test('Cue переживает сериализацию без потерь', () {
     const cue = Cue(
       index: 3,
-      range: TimeRange(7.52, 13.23),
+      range: TimeRange(9.03, 14.6),
       orig: 'sabah vardiyası başladı',
       ru: 'Утренняя смена началась',
       status: CueStatus.ok,
@@ -266,8 +266,8 @@ void main() {
     );
     final restored = Cue.fromJson(cue.toJson());
     expect(restored.index, 3);
-    expect(restored.range.start, closeTo(7.52, 1e-9));
-    expect(restored.range.end, closeTo(13.23, 1e-9));
+    expect(restored.range.start, closeTo(9.03, 1e-9));
+    expect(restored.range.end, closeTo(14.6, 1e-9));
     expect(restored.orig, cue.orig);
     expect(restored.ru, cue.ru);
     expect(restored.status, CueStatus.ok);
@@ -275,9 +275,9 @@ void main() {
   });
 
   test('Отпечаток совпадает при равных размере и длительности', () {
-    const a = SourceFingerprint(sizeBytes: 6571302, durationSec: 34.80);
-    const b = SourceFingerprint(sizeBytes: 6571302, durationSec: 34.801);
-    const c = SourceFingerprint(sizeBytes: 6571303, durationSec: 34.80);
+    const a = SourceFingerprint(sizeBytes: 4812907, durationSec: 41.20);
+    const b = SourceFingerprint(sizeBytes: 4812907, durationSec: 41.201);
+    const c = SourceFingerprint(sizeBytes: 4812908, durationSec: 41.20);
     expect(a.matches(b), isTrue, reason: 'разница длительности < 0.01 с');
     expect(a.matches(c), isFalse, reason: 'другой размер файла');
   });
@@ -508,10 +508,10 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/pipeline/silence_parser.dart';
 
 const _log = '''
-[Parsed_silencedetect_0 @ 0x14b0058d0] silence_start: 1.70208
-[Parsed_silencedetect_0 @ 0x14b0058d0] silence_end: 3.18225 | silence_duration: 1.48017
-[Parsed_silencedetect_0 @ 0x14b0058d0] silence_start: 6.55142
-[Parsed_silencedetect_0 @ 0x14b0058d0] silence_end: 7.52108 | silence_duration: 0.96966
+[Parsed_silencedetect_0 @ 0x600000c1c0] silence_start: 2.41337
+[Parsed_silencedetect_0 @ 0x600000c1c0] silence_end: 3.90561 | silence_duration: 1.49224
+[Parsed_silencedetect_0 @ 0x600000c1c0] silence_start: 8.12473
+[Parsed_silencedetect_0 @ 0x600000c1c0] silence_end: 9.03319 | silence_duration: 0.90846
 ''';
 
 void main() {
@@ -519,10 +519,10 @@ void main() {
     final events = parseSilenceLog(_log);
     expect(events.length, 4);
     expect(events[0].kind, SilenceEventKind.start);
-    expect(events[0].time, closeTo(1.70208, 1e-6));
+    expect(events[0].time, closeTo(2.41337, 1e-6));
     expect(events[1].kind, SilenceEventKind.end);
-    expect(events[1].time, closeTo(3.18225, 1e-6));
-    expect(events[3].time, closeTo(7.52108, 1e-6));
+    expect(events[1].time, closeTo(3.90561, 1e-6));
+    expect(events[3].time, closeTo(9.03319, 1e-6));
   });
 
   test('Парсер игнорирует посторонние строки лога', () {
@@ -534,10 +534,10 @@ void main() {
     final speech = speechIntervals(parseSilenceLog(_log), 10.0);
     expect(speech.length, 3);
     expect(speech[0].start, closeTo(0.0, 1e-9));
-    expect(speech[0].end, closeTo(1.70208, 1e-6));
-    expect(speech[1].start, closeTo(3.18225, 1e-6));
-    expect(speech[1].end, closeTo(6.55142, 1e-6));
-    expect(speech[2].start, closeTo(7.52108, 1e-6));
+    expect(speech[0].end, closeTo(2.41337, 1e-6));
+    expect(speech[1].start, closeTo(3.90561, 1e-6));
+    expect(speech[1].end, closeTo(8.12473, 1e-6));
+    expect(speech[2].start, closeTo(9.03319, 1e-6));
     expect(speech[2].end, closeTo(10.0, 1e-9), reason: 'хвост до конца файла');
   });
 
@@ -925,32 +925,32 @@ import 'package:subtitler/core/models.dart';
 import 'package:subtitler/core/srt.dart';
 
 const _cues = [
-  Cue(index: 1, range: TimeRange(0.0, 1.7), orig: 'ağabey haber ver',
+  Cue(index: 1, range: TimeRange(0.0, 2.4), orig: 'ağabey haber ver',
       ru: 'Брат, дай знать.', status: CueStatus.ok, flags: {}),
-  Cue(index: 2, range: TimeRange(3.18, 6.55), orig: '', ru: '',
+  Cue(index: 2, range: TimeRange(3.9, 8.12), orig: '', ru: '',
       status: CueStatus.empty, flags: {}),
-  Cue(index: 3, range: TimeRange(7.52, 13.23), orig: 'kaç kişi geldi bugün',
+  Cue(index: 3, range: TimeRange(9.03, 14.6), orig: 'kaç kişi geldi bugün',
       ru: 'Сколько человек сегодня пришло.', status: CueStatus.ok, flags: {}),
 ];
 
 void main() {
   test('Таймкод форматируется как ЧЧ:ММ:СС,ммм', () {
     expect(formatSrtTimestamp(0), '00:00:00,000');
-    expect(formatSrtTimestamp(5.71), '00:00:05,710');
+    expect(formatSrtTimestamp(5.83), '00:00:05,830');
     expect(formatSrtTimestamp(63.456), '00:01:03,456');
     expect(formatSrtTimestamp(3723.9), '01:02:03,900');
   });
 
   test('Таймкод разбирается обратно', () {
-    expect(parseSrtTimestamp('00:00:05,710'), closeTo(5.71, 1e-9));
+    expect(parseSrtTimestamp('00:00:05,830'), closeTo(5.83, 1e-9));
     expect(parseSrtTimestamp('01:02:03,456'), closeTo(3723.456, 1e-9));
   });
 
   test('Пустые реплики не попадают в SRT, нумерация сплошная', () {
     final srt = buildSrt(_cues, field: SrtField.ru);
-    expect(srt, contains('1\n00:00:00,000 --> 00:00:01,700\nБрат, дай знать.'));
-    expect(srt, contains('2\n00:00:07,520 --> 00:00:13,230\nСколько человек сегодня пришло.'));
-    expect(srt, isNot(contains('00:00:03,180')), reason: 'пустая реплика пропущена');
+    expect(srt, contains('1\n00:00:00,000 --> 00:00:02,400\nБрат, дай знать.'));
+    expect(srt, contains('2\n00:00:09,030 --> 00:00:14,600\nСколько человек сегодня пришло.'));
+    expect(srt, isNot(contains('00:00:03,900')), reason: 'пустая реплика пропущена');
   });
 
   test('Поле выбирается параметром', () {
@@ -962,9 +962,9 @@ void main() {
     final parsed = parseSrt(buildSrt(_cues, field: SrtField.ru));
     expect(parsed.length, 2);
     expect(parsed.first.range.start, closeTo(0.0, 1e-9));
-    expect(parsed.first.range.end, closeTo(1.7, 1e-9));
+    expect(parsed.first.range.end, closeTo(2.4, 1e-9));
     expect(parsed.first.ru, 'Брат, дай знать.');
-    expect(parsed.last.range.start, closeTo(7.52, 1e-9));
+    expect(parsed.last.range.start, closeTo(9.03, 1e-9));
   });
 
   test('Многострочный текст реплики сохраняется', () {
@@ -1282,9 +1282,9 @@ void main() {
 
   test('Команда нарезки задаёт границы и OggOpus 64k моно', () {
     final args = FfmpegCommands.cutSegment(
-        input: 'a.wav', output: 's.ogg', start: 7.52, end: 13.23);
-    expect(args, containsAllInOrder(['-ss', '7.52']));
-    expect(args, containsAllInOrder(['-to', '13.23']));
+        input: 'a.wav', output: 's.ogg', start: 9.03, end: 14.61);
+    expect(args, containsAllInOrder(['-ss', '9.03']));
+    expect(args, containsAllInOrder(['-to', '14.61']));
     expect(args, containsAllInOrder(['-c:a', 'libopus']));
     expect(args, containsAllInOrder(['-b:a', '64k']));
     expect(args, containsAllInOrder(['-ac', '1']));
@@ -3733,27 +3733,20 @@ Expected: все тесты проходят, ни одного пропущен
 
 - [ ] **Step 4: Приёмка на реальных роликах**
 
-Скопировать три ролика из ручного прогона в `test/acceptance/samples/`
-(файлы `WhatsApp Video 2026-09-02 at 19.57.25*.mp4` из папки пользователя;
-они не коммитятся — см. `.gitignore`) и прогнать каждый:
+Положить приёмочные ролики в `test/acceptance/samples/` (они не коммитятся —
+см. `.gitignore`) и прогнать каждый:
 
 ```bash
 export YC_API_KEY='<ключ следователя>'
-dart run tool/pipeline_cli.dart "test/acceptance/samples/v52.mp4" --lang tr-TR
-dart run tool/pipeline_cli.dart "test/acceptance/samples/v26.mp4" --lang tr-TR
-dart run tool/pipeline_cli.dart "test/acceptance/samples/v35.mp4" --lang tr-TR
+dart run tool/pipeline_cli.dart "test/acceptance/samples/<ролик>.mp4" --lang tr-TR
 ```
 
-Ожидаемое (эталон — ручной прогон 2026-09-02, все три ролика турецкие):
-
-| Ролик | Длительность | Порог | Сегментов | Ожидаемые границы, с |
-|---|---|---|---|---|
-| v52 | 52.00 | −15dB | 9 | 0.00–5.71, 5.71–13.53, 13.53–20.73, 20.73–26.90, 26.90–28.94, 28.94–36.14, 36.14–42.50, 42.59–50.76, 51.62–52.00 |
-| v26 | 25.71 | −18dB | 5 | 0.00–3.95, 4.18–8.25, 9.28–16.13, 16.49–22.21, 22.84–25.71 |
-| v35 | 34.80 | −30dB | 6 | 0.00–1.70, 3.18–6.55, 7.52–13.23, 13.83–20.12, 21.58–29.64, 30.08–34.80 |
+Ожидаемое по каждому ролику разработчик держит локально, в `expected.md`
+рядом с образцами: порог тишины, число сегментов и их границы. В репозиторий
+эти значения не попадают — они сняты с настоящих записей.
 
 Проверить по каждому ролику:
-1. Выбранный порог и число сегментов совпали с таблицей (расхождение границ до 0.05 с допустимо).
+1. Выбранный порог и число сегментов совпали с `expected.md` (расхождение границ до 0.05 с допустимо).
 2. Распознанный текст осмысленный — не набор несвязанных слов. Эталонные
    фразы держите в локальном файле рядом с образцами: в репозиторий
    содержимое реальных записей не попадает.
@@ -3762,7 +3755,7 @@ dart run tool/pipeline_cli.dart "test/acceptance/samples/v35.mp4" --lang tr-TR
 5. Открыть `_ru.mp4` и глазами убедиться, что русский текст читается и не выходит за кадр.
 
 Если пункт 1 не сошёлся — чинить сегментатор (задача 4) или подбор порога
-(задача 8), а не подгонять таблицу.
+(задача 8), а не подгонять эталон.
 
 - [ ] **Step 5: Записать инструкцию по приёмке**
 

@@ -6,7 +6,7 @@
 
 ```bash
 export YC_API_KEY='<ключ сервисного аккаунта>'
-dart run tool/pipeline_cli.dart test/acceptance/samples/v35.mp4 --lang tr-TR
+dart run tool/pipeline_cli.dart test/acceptance/samples/<ролик>.mp4 --lang tr-TR
 ```
 
 ## Эталон
@@ -42,7 +42,7 @@ brew install ffmpeg-full
 export SUBTITLER_FFMPEG="$(brew --prefix ffmpeg-full)/bin/ffmpeg"
 export SUBTITLER_FFPROBE="$(brew --prefix ffmpeg-full)/bin/ffprobe"
 flutter test                                # пропущенные тесты вшивания оживут
-dart run tool/pipeline_cli.dart samples/v35.mp4 --lang tr-TR
+dart run tool/pipeline_cli.dart samples/<ролик>.mp4 --lang tr-TR
 ```
 
 Проверено 2026-09-11: с `ffmpeg-full` весь набор проходит целиком
