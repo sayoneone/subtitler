@@ -675,6 +675,98 @@ void main() {
     });
   });
 
+  // Готовое видео сохранено — файлы сессии больше не нужны: в них текст
+  // дела, и лежат они рядом с вещдоком.
+  group('Уборка после сохранения видео', () {
+    const fpA = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+    const fpB = SourceFingerprint(sizeBytes: 200, durationSec: 34.8);
+
+    List<String> names(Directory dir) => dir.existsSync()
+        ? (dir.listSync().map((e) => p.basename(e.path)).toList()..sort())
+        : const [];
+
+    test('Сессия и резервные копии языков рядом с видео удаляются', () async {
+      final video = '${tmp.path}/clip.mp4';
+      File(video).writeAsBytesSync(List.filled(100, 0));
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(video));
+      await store.saveBackup(sessionFor(video).copyWith(lang: 'uz-UZ'));
+
+      final deleted = await store.deleteFor(video, fpA);
+
+      expect(deleted, unorderedEquals([
+        store.sessionPathFor(video),
+        store.backupPathFor(video, 'uz-UZ'),
+      ]));
+      expect(names(tmp), ['clip.mp4']);
+      expect(await store.load(video, fpA), isNull);
+      expect(await store.backupLanguages(video, fpA), isEmpty);
+    });
+
+    test('Сессия в запасной папке тоже удаляется', () async {
+      // Носитель отключён — как и защищённый, всё уходит в запасную папку.
+      final video = '${tmp.path}/отключённый носитель/дело/VID_0001.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      expect(await store.save(sessionFor(video)), startsWith(fallback.path));
+      await store.saveBackup(sessionFor(video).copyWith(lang: 'uz-UZ'));
+
+      await store.deleteFor(video, fpA);
+
+      expect(names(fallback), isEmpty);
+    });
+
+    test('Чужие сессии остаются', () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      // Одноимённый вещдок другого дела — в запасной папке.
+      final other = '${tmp.path}/отключённый носитель/дело Б/VID_0001.mp4';
+      final otherFile = await store.save(sessionFor(other, size: 200));
+      // Та же запись, открытая с флешки: её сессия — в запасной папке под
+      // другим хешем. У рабочей копии на диске сессия своя, рядом с видео,
+      // и правки флешки ей не принадлежат (см. [SessionStore.load]).
+      final original = '${tmp.path}/носитель E/дело/VID_0001.mp4';
+      final originalFile = await store.save(sessionFor(original));
+      final work = '${tmp.path}/дело 1/VID_0001.mp4';
+      Directory(p.dirname(work)).createSync(recursive: true);
+      File(work).writeAsBytesSync(List.filled(100, 0));
+      await store.save(sessionFor(work));
+
+      await store.deleteFor(work, fpA);
+
+      expect(File(store.sessionPathFor(work)).existsSync(), isFalse);
+      expect(File(otherFile).existsSync(), isTrue,
+          reason: 'другое видео — другой отпечаток');
+      expect(File(originalFile).existsSync(), isTrue,
+          reason: 'сессия другой копии вещдока');
+      expect(await store.load(other, fpB), isNotNull);
+    });
+
+    test('Сессия, записанная по прежнему пути того же видео, удаляется',
+        () async {
+      // Флешку вставили под другой буквой: рядом с видео сессии нет, и
+      // открылась сессия, записанная под прежней буквой. Останься она —
+      // при следующем открытии видео нашлась бы снова.
+      final store = SessionStore(fallbackDir: fallback.path);
+      final onE = '${tmp.path}/носитель E/дело/VID_0001.mp4';
+      final onF = '${tmp.path}/носитель F/дело/VID_0001.mp4';
+      await store.save(sessionFor(onE));
+      expect(await store.load(onF, fpA), isNotNull);
+
+      await store.deleteFor(onF, fpA);
+
+      expect(names(fallback), isEmpty);
+      expect(await store.load(onF, fpA), isNull);
+    });
+
+    test('Нечитаемый файл не удаляется', () async {
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      File('$video.subtitler.json').writeAsStringSync('{обрыв');
+
+      expect(await store.deleteFor(video, fpA), isEmpty);
+      expect(File('$video.subtitler.json').existsSync(), isTrue);
+    });
+  });
+
   test('Папка только на чтение — резервные копии языков в запасной папке, '
       'возврат к прежнему языку бесплатный и с правками', () async {
     const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);

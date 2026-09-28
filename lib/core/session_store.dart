@@ -249,6 +249,84 @@ class SessionStore {
     return restored;
   }
 
+  /// Удаляет файлы сессии видео — основную сессию и резервные копии
+  /// языков, рядом с видео и в запасной папке — и возвращает их пути.
+  /// Вызывается, когда готовое видео сохранено: в этих файлах текст дела,
+  /// а нужны они были, чтобы не платить за распознанное второй раз.
+  ///
+  /// Удаляются ровно те файлы, которые нашли бы [load] и [loadBackup]: с
+  /// отпечатком [actual] и по тем же правилам «своих» и «чужих» путей
+  /// (см. [_ownOrMoved]). Сессия одноимённого видео другого дела и файлы
+  /// другой копии вещдока, у которой рядом с видео своя сессия, остаются.
+  /// Нечитаемый файл тоже остаётся: чей он, не понять (см.
+  /// [_keepUnreadable]).
+  ///
+  /// Сбой удаления уходит в журнал, а не выше: это уборка, готовое видео
+  /// от неё не зависит.
+  Future<List<String>> deleteFor(
+      String videoPath, SourceFingerprint actual) async {
+    final names = _fallbackNames();
+    final deleted = <String>[];
+    Future<void> sweep(List<String> own, String tail) async {
+      final paths = await _matchingOwnOrMoved(
+          own, () => _otherPathFallbacks(videoPath, tail, names), actual);
+      for (final path in paths) {
+        try {
+          File(path).deleteSync();
+          deleted.add(path);
+        } on FileSystemException catch (e) {
+          log.warn('Не удалось удалить файл сессии $path: $e');
+        }
+      }
+    }
+
+    await sweep([
+      sessionPathFor(videoPath),
+      fallbackPathFor(videoPath),
+      _legacyFallbackPathFor(videoPath),
+    ], 'subtitler.json');
+    for (final lang in kLanguageCodes) {
+      await sweep([
+        backupPathFor(videoPath, lang),
+        fallbackBackupPathFor(videoPath, lang),
+        _legacyFallbackBackupPathFor(videoPath, lang),
+      ], 'subtitler.$lang.json');
+    }
+    _checked.removeAll(deleted);
+    return deleted;
+  }
+
+  /// Пути из [own] и [moved], чьи сессии подходят по отпечатку, — по
+  /// правилам [_ownOrMoved]: если рядом с видео подходящая сессия есть,
+  /// файлы под чужим хешем не в счёт.
+  Future<List<String>> _matchingOwnOrMoved(
+    List<String> own,
+    List<String> Function() moved,
+    SourceFingerprint actual,
+  ) async {
+    final matching = await _matching(own, actual);
+    if (matching.contains(own.first)) return matching;
+    return [...matching, ...await _matching(moved(), actual)];
+  }
+
+  Future<List<String>> _matching(
+      List<String> paths, SourceFingerprint actual) async {
+    final found = <String>[];
+    for (final path in paths) {
+      final file = File(path);
+      if (file.statSync().type != FileSystemEntityType.file) continue;
+      try {
+        final (session, _) = await _read(file);
+        if (session != null && session.fingerprint.matches(actual)) {
+          found.add(path);
+        }
+      } on FileSystemException catch (e) {
+        log.warn('Файл сессии $path не прочитать: $e');
+      }
+    }
+    return found;
+  }
+
   /// Самая свежая из подходящих сессий по [paths].
   ///
   /// Файл может быть и рядом с видео, и в запасной папке: сессию создали,

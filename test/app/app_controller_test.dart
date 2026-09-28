@@ -1424,17 +1424,23 @@ void main() {
       final c = h.controller;
       await c.openVideo(video);
       String? burned;
-      h.runner.onBurn = (_) => burned = File(
-              p.join(h.runtime.workDirFor(video), 'burn_ru.srt'))
-          .readAsStringSync();
+      String? srtBeside;
+      Session? session;
+      // После сохранения .srt и сессия удаляются — смотрим, что лежало на
+      // диске, пока шло вшивание.
+      h.runner.onBurn = (_) {
+        burned = File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt'))
+            .readAsStringSync();
+        srtBeside = File(beside(video, '_ru.srt')).readAsStringSync();
+        session = sessionOnDisk(video);
+      };
 
       c.updateTranslation(1, 'свежая правка следователя');
       await c.save();
 
       expect(burned, contains('свежая правка следователя'));
-      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
-          contains('свежая правка следователя'));
-      expect(sessionOnDisk(video).cues.first.ru, 'свежая правка следователя');
+      expect(srtBeside, contains('свежая правка следователя'));
+      expect(session!.cues.first.ru, 'свежая правка следователя');
     });
   });
 
@@ -1456,18 +1462,62 @@ void main() {
       expect(File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt')).existsSync(),
           isFalse);
       expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse);
-      expect(File(beside(video, '_ru.srt')).existsSync(), isTrue);
-      expect(File('$video.subtitler.json').existsSync(), isTrue);
+      // Видео готово — .srt и файл сессии больше не нужны: рядом с
+      // исходником остаётся только готовое видео.
+      expect(File(beside(video, '_orig.srt')).existsSync(), isFalse);
+      expect(File(beside(video, '_ru.srt')).existsSync(), isFalse);
+      expect(File('$video.subtitler.json').existsSync(), isFalse);
+      expect(c.outputInFallback, isFalse);
+      expect(c.outputDir, p.dirname(video));
 
       await c.revealOutput();
       expect(h.revealed, [result.videoPath]);
       expect(h.shared, isEmpty);
 
-      // Правка после сохранения — готовый файл устарел.
+      // Правка после сохранения — готовый файл устарел, а правка снова
+      // пишется на диск, пока видео не сохранят заново.
       c.updateTranslation(1, 'ещё одна правка');
       expect(c.saveStatus, SaveStatus.idle);
       expect(c.saveResult, isNull);
+      await c.flush();
+      expect(sessionOnDisk(video).cues.first.ru, 'ещё одна правка');
+      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
+          contains('ещё одна правка'));
     }, skip: burnSkip);
+
+    test('После сохранения удаляются и резервные копии языков', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      await c.switchLanguage('uz-UZ');
+      await c.switchLanguage('tr-TR');
+      expect(File('$video.subtitler.uz-UZ.json').existsSync(), isTrue);
+      expect(c.languageChoices.first.ready, isTrue);
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
+      expect(File('$video.subtitler.json').existsSync(), isFalse);
+      expect(File('$video.subtitler.uz-UZ.json').existsSync(), isFalse);
+      final uzbek = c.languageChoices.firstWhere((l) => l.code == 'uz-UZ');
+      expect(uzbek.ready, isFalse,
+          reason: 'копии нет — меню не обещает бесплатного переключения');
+    }, skip: burnSkip);
+
+    test('Сохранение не удалось — .srt и сессия остаются', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      h.runner.rewriteBurn = withoutSubtitles;
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.failed);
+      expect(File(beside(video, '_ru.srt')).existsSync(), isTrue);
+      expect(File(beside(video, '_orig.srt')).existsSync(), isTrue);
+      expect(File('$video.subtitler.json').existsSync(), isTrue,
+          reason: 'распознанное не оплачивается второй раз');
+    });
 
     // Дефект 4: во время вшивания интерфейс писал «Готово» — прогресс
     // приходил как этап done без счёта.
@@ -1523,12 +1573,14 @@ void main() {
       const marked = '{неразборчиво: говорят двое сразу, шумит улица}';
       c.updateTranslation(1, marked);
       c.updateTranslation(3, 'вечером');
+      String? srtBeside;
+      h.runner.onBurn =
+          (_) => srtBeside = File(beside(video, '_ru.srt')).readAsStringSync();
 
       await c.save();
 
       expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
-      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
-          contains(marked),
+      expect(srtBeside, contains(marked),
           reason: 'файл для человека — без экранирования');
     }, skip: burnSkip);
 
@@ -1599,6 +1651,9 @@ void main() {
         expect(target.lengthSync(), verifiedLength);
         expect(partial.existsSync(), isFalse);
         expect(h.controller.saveResult!.videoPath, target.path);
+        // Первая попытка оставила .srt и сессию — повтор их убирает.
+        expect(File(beside(video, '_ru.srt')).existsSync(), isFalse);
+        expect(File('$video.subtitler.json').existsSync(), isFalse);
       });
 
       test('после правки временное видео устарело — удаляется, повтор '
@@ -1658,8 +1713,16 @@ void main() {
       expect(result.inFallback, isTrue);
       expect(result.videoPath, startsWith(h.runtime.outputDir));
       expect(File(result.videoPath).existsSync(), isTrue);
-      expect(File(result.ruSrtPath).readAsStringSync(), contains('RU:'));
       expect(c.outputDir, result.dir);
+      // .srt из запасной папки и сессия из папки программы убраны так же,
+      // как рядом с видео.
+      expect(Directory(result.dir).listSync().map((e) => p.basename(e.path)),
+          ['clip_ru.mp4']);
+      expect(
+          File(SessionStore(fallbackDir: h.runtime.supportDir)
+                  .fallbackPathFor(video))
+              .existsSync(),
+          isFalse);
     }, skip: burnSkip);
 
     // Замечание ревью c20: при запасной папке сообщение уверяло, что .srt
@@ -1738,8 +1801,8 @@ void main() {
       expect(result.inFallback, isTrue);
       expect(result.videoPath, startsWith(h.runtime.outputDir));
       expect(File(result.videoPath).existsSync(), isTrue);
-      expect(result.ruSrtPath, beside(video, '_ru.srt'),
-          reason: '.srt рядом с видео записать удалось — они там и остались');
+      expect(File(beside(video, '_ru.srt')).existsSync(), isFalse,
+          reason: '.srt, записанные рядом с видео, убраны и оттуда');
       expect(c.outputInFallback, isTrue, reason: 'плашка с путём к видео');
       expect(h.runner.burnCalls, 2);
       expect(File(beside(video, '_ru.mp4')).existsSync(), isFalse);
@@ -1760,14 +1823,12 @@ void main() {
       expect(h.runner.burnCalls, 1);
     });
 
-    test('Android: вместо «Открыть папку» — «Поделиться» видео и обоими .srt',
+    test('Android: вместо «Открыть папку» — «Поделиться» готовым видео',
         () async {
       final h = await started(isMobile: true);
       final c = h.controller;
       const result = SaveResult(
         videoPath: '/data/clip_ru.mp4',
-        origSrtPath: '/data/clip_orig.srt',
-        ruSrtPath: '/data/clip_ru.srt',
         inFallback: false,
       );
       c.debugEmulate(
@@ -1776,8 +1837,8 @@ void main() {
           saveStatus: SaveStatus.saved,
           saveResult: result);
       await c.revealOutput();
-      expect(h.shared.single,
-          ['/data/clip_ru.mp4', '/data/clip_orig.srt', '/data/clip_ru.srt']);
+      expect(h.shared.single, ['/data/clip_ru.mp4'],
+          reason: '.srt после сохранения удалены — отдавать нечего');
       expect(h.revealed, isEmpty);
     });
   });

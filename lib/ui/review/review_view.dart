@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:path/path.dart' as p;
 
 import '../../app/app_controller.dart';
 import '../../app/user_error.dart';
@@ -374,20 +373,13 @@ class _ReviewViewState extends State<ReviewView> {
     // Сообщения контроллера (notice) и вопрос о длинном ролике показывает
     // оболочка над любым экраном — здесь они вышли бы вторым экземпляром.
     final busyNotSaving = c.isBusy && !c.isSaving;
-    // Файлы в папке программы: после сохранения показываем само видео,
-    // до него — папку с субтитрами.
+    // Файлы в папке программы: после сохранения показываем само видео
+    // (.srt и сессия к тому времени удалены), до него — папку с субтитрами.
     final saved = c.saveResult;
     final fallbackPath = (saved?.inFallback ?? false)
         ? saved!.videoPath
         : (c.outputInFallback ? c.outputDir : null);
     final fallbackDir = c.outputDir ?? fallbackPath;
-    // Бывает, что в папку программы ушло только видео (например, ffmpeg не
-    // пустили писать рядом с исходником), а .srt к тому времени уже
-    // записаны рядом с исходником. Тогда про субтитры сказать отдельно:
-    // в папке программы их нет.
-    final onlyVideoInFallback = saved != null &&
-        saved.inFallback &&
-        !p.equals(p.dirname(saved.ruSrtPath), saved.dir);
 
     Widget gap(Widget child) =>
         Padding(padding: const EdgeInsets.only(top: 8), child: child);
@@ -482,10 +474,9 @@ class _ReviewViewState extends State<ReviewView> {
             ReviewPlate(
               key: const ValueKey('review-fallback'),
               icon: Icons.folder_outlined,
-              message: onlyVideoInFallback
+              message: saved != null
                   ? 'Готовое видео записать рядом с исходным нельзя — оно '
-                        'сохранено в папку программы: $fallbackDir. Файлы '
-                        '.srt с субтитрами лежат рядом с исходным видео.'
+                        'сохранено в папку программы: $fallbackDir'
                   : 'Рядом с видео записать нельзя — файлы сохранены в '
                         'папку программы: $fallbackDir',
               actions: [

@@ -115,8 +115,6 @@ Future<AppHarness> _show(
         saveStatus: SaveStatus.saved,
         saveResult: const SaveResult(
           videoPath: '/программа/output/clip_ru.mp4',
-          origSrtPath: '/программа/output/clip_orig.srt',
-          ruSrtPath: '/программа/output/clip_ru.srt',
           inFallback: true,
         ),
       );

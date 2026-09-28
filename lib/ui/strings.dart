@@ -105,7 +105,7 @@ abstract final class AppStrings {
   static const homeMobileIntro =
       'Выберите видео — субтитры на русском сделаются сами.';
   static const homeOutputHint =
-      'Субтитры и видео с ними сохраняются рядом с исходным файлом.';
+      'Видео с русскими субтитрами сохранится рядом с исходным файлом.';
   static const homeDropFallback =
       'Если перетаскивание не срабатывает, нажмите «Выбрать файл».';
   static const homeChecking = 'Проверяем файл…';
