@@ -200,6 +200,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       }
       break;
     }
+    case WM_CLOSE:
+      // The guide goes first. Flutter asks Dart whether to exit
+      // (AppShell._onExitRequested: pending edits, the log) only when the
+      // last top-level window of the process is closing; with the guide
+      // open, the program would end without asking.
+      help_window_ = nullptr;
+      break;
     case WM_DESTROY:
       // Properties must be removed before the window is gone.
       ::RemovePropW(hwnd, instance_marker_.c_str());

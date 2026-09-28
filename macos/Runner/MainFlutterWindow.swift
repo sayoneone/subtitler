@@ -52,10 +52,25 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
       window.makeKeyAndOrderFront(nil)
       return true
     }
+    // Каждый новый движок ставит себя обработчиком выхода программы
+    // (FlutterAppDelegate.terminationHandler — слабая ссылка, в открытых
+    // заголовках её нет). Не вернуть главный — и выход спрашивал бы окно
+    // руководства, а после его закрытия никого: программа закрывалась бы
+    // мимо AppShell._onExitRequested, не дописав правки и журнал.
+    let delegate = NSApp.delegate as? NSObject
+    let handlerKey = "terminationHandler"
+    let canRestore =
+      delegate?.responds(to: NSSelectorFromString(handlerKey)) == true
+      && delegate?.responds(to: NSSelectorFromString("setTerminationHandler:")) == true
+    let mainHandler = canRestore ? delegate?.value(forKey: handlerKey) : nil
+
     let engine = FlutterEngine(name: "help", project: nil, allowHeadlessExecution: false)
     // Без окна движок не запускается: сначала вид, потом запуск.
     let controller = FlutterViewController(engine: engine, nibName: nil, bundle: nil)
     guard engine.run(withEntrypoint: "helpMain") else { return false }
+    if let mainHandler = mainHandler {
+      delegate?.setValue(mainHandler, forKey: handlerKey)
+    }
     let window = NSWindow(contentViewController: controller)
     window.title = title
     window.isReleasedWhenClosed = false
