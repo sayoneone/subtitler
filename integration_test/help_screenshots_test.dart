@@ -151,8 +151,8 @@ class _Callout {
   final Rect target;
   final Offset from;
 
-  /// Насколько рамка шире цели.
-  final double pad;
+  /// Насколько рамка шире цели с каждой стороны.
+  final EdgeInsets pad;
   const _Callout(this.target, this.from, this.pad);
 }
 
@@ -162,8 +162,9 @@ class _Aim {
   final Finder finder;
   final List<Finder> also;
   final Offset shift;
-  final double pad;
-  const _Aim(this.finder, this.shift, {this.also = const [], this.pad = 6});
+  final EdgeInsets pad;
+  const _Aim(this.finder, this.shift,
+      {this.also = const [], this.pad = const EdgeInsets.all(6)});
 }
 
 /// Кнопка целиком, а не только её надпись.
@@ -183,7 +184,7 @@ class _CalloutPainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     for (final c in callouts) {
       final frame = RRect.fromRectAndRadius(
-          c.target.inflate(c.pad), const Radius.circular(10));
+          c.pad.inflateRect(c.target), const Radius.circular(10));
       // Направление от цели к началу стрелки и точка на краю рамки.
       final center = frame.center;
       final away = c.from - center;
@@ -315,10 +316,13 @@ void main() {
     await tester.pump();
     FocusManager.instance.primaryFocus?.unfocus();
     await shoot(tester, 'app-key.png', arrows: [
-      // Подпись поля лежит на его рамке — рамка стрелки обходит её.
-      _Aim(find.byKey(const ValueKey('key-field')), const Offset(-420, -60),
-          pad: 14),
-      _Aim(_button('Проверить и сохранить'), const Offset(-250, 50)),
+      // Поле и кнопка — одна рамка: вставить ключ и нажать. Подпись поля
+      // лежит на его рамке — сверху рамка стрелки отступает больше.
+      _Aim(find.byKey(const ValueKey('key-field')), const Offset(-440, -40),
+          also: [_button('Проверить и сохранить')],
+          pad: const EdgeInsets.fromLTRB(8, 14, 8, 6)),
+      _Aim(find.text('Перевод'), const Offset(-190, 60),
+          also: [find.text('Распознавание'), find.byIcon(Icons.check_circle)]),
     ]);
 
     // 2. Главный экран.
@@ -351,7 +355,7 @@ void main() {
     // Стрелки идут по пустым местам: от неба в кадре к правке реплики и
     // от пустого края первой строки списка к «Не тот язык?».
     await shoot(tester, 'app-review.png', arrows: [
-      _Aim(find.text('0:08'), const Offset(-390, -70), also: [
+      _Aim(find.text('0:08'), const Offset(-370, 10), also: [
         find.text('Давай встретимся завтра в девять утра?').last,
         find.text('Yarın sabah saat dokuzda buluşalım mı?').last,
       ]),
@@ -371,7 +375,7 @@ void main() {
     // стрелка к одной кнопке перечеркнула бы их.
     await shoot(tester, 'app-saved.png', arrows: [
       _Aim(find.byKey(const ValueKey('review-saved')), const Offset(-100, -205),
-          pad: 3),
+          pad: const EdgeInsets.all(3)),
     ]);
 
     // 6. Журнал работы: «⋮» → «Журнал работы». Записи — как у настоящей
