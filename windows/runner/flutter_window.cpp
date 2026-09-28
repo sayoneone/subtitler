@@ -201,10 +201,19 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       break;
     }
     case WM_CLOSE:
-      // The guide goes first. Flutter asks Dart whether to exit
-      // (AppShell._onExitRequested: pending edits, the log) only when the
-      // last top-level window of the process is closing; with the guide
-      // open, the program would end without asking.
+      // Flutter asks Dart whether to exit (AppShell._onExitRequested:
+      // pending edits, the log) only when the last top-level window of the
+      // process is closing. So the guide goes first. It may also own the
+      // thread's hidden IME window, which is left without an owner and then
+      // counts as one more top-level window. Hence: close the guide, make
+      // this window active (the IME window moves to it) and close again
+      // once that has settled.
+      if (help_window_ && help_window_->IsOpen()) {
+        help_window_ = nullptr;
+        ::SetActiveWindow(hwnd);
+        ::PostMessage(hwnd, WM_CLOSE, 0, 0);
+        return 0;
+      }
       help_window_ = nullptr;
       break;
     case WM_DESTROY:

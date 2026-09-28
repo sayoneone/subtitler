@@ -376,6 +376,11 @@ jobs:
               $main = @([TopWindows]::Of([uint32]$app.Id)) |
                       Where-Object { [TopWindows]::Title($_) -eq 'Subtitler' } | Select-Object -First 1
               [TopWindows]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+              Start-Sleep -Milliseconds 300
+              if (-not $app.HasExited) {
+                Write-Host "  через 0,3 с после закрытия:"
+                [TopWindows]::Describe([uint32]$app.Id) | ForEach-Object { Write-Host "    $_" }
+              }
               if (-not $app.WaitForExit(20000)) {
                 $failures.Add("$($label): программа не закрылась за 20 с после закрытия главного окна")
                 Stop-Process -Id $app.Id -Force
