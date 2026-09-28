@@ -228,7 +228,7 @@ AppHarness makeTestController({
 /// Сессия для экранов: реплики всех видов — обычная, с зацикливанием,
 /// нераспознанная, без перевода, «речи нет». Тексты выдуманные.
 Session sampleSession({
-  String videoPath = '/видео/дело 1/clip.mp4',
+  String videoPath = '/видео/папка 1/clip.mp4',
   String lang = 'tr-TR',
   LanguageConfidence? confidence = LanguageConfidence.high,
   String? runnerUp = 'uz-UZ',

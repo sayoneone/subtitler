@@ -42,7 +42,7 @@ const double _pixelRatio = 1.5;
 
 const _shot = ValueKey('shot');
 
-/// Выдуманная запись и её «материалы»: никаких настоящих дел.
+/// Выдуманная запись: никаких настоящих видео.
 final String _video = Platform.isWindows
     ? r'C:\Users\User\Desktop\Видео\VID_20260902_195725.mp4'
     : '/Users/user/Desktop/Видео/VID_20260902_195725.mp4';

@@ -3,10 +3,10 @@ import 'package:subtitler/core/ffmpeg/ffmpeg_locator.dart';
 import 'package:subtitler/core/ffmpeg/process_runner.dart';
 
 /// Раскладка переносимой сборки под Windows: exe и рядом с ним tools\ffmpeg.
-/// Ровно это собирает .github/workflows/build.yml и ровно это следователь
+/// Ровно это собирает .github/workflows/build.yml и ровно это пользователь
 /// распаковывает из ZIP-архива.
-const _appDir = r'C:\Users\sled\Desktop\subtitler';
-const _bundled = r'C:\Users\sled\Desktop\subtitler\tools\ffmpeg\ffmpeg.exe';
+const _appDir = r'C:\Users\user\Desktop\subtitler';
+const _bundled = r'C:\Users\user\Desktop\subtitler\tools\ffmpeg\ffmpeg.exe';
 
 void main() {
   List<String> windowsCandidates({String? override, Map<String, String>? env}) =>
@@ -18,7 +18,7 @@ void main() {
       );
 
   test('На Windows ffmpeg ищется рядом с приложением', () {
-    // Главный случай: служебный ПК без прав администратора. Ни переменной
+    // Главный случай: рабочий компьютер без прав администратора. Ни переменной
     // окружения, ни ffmpeg в PATH там нет — есть только распакованная папка.
     expect(windowsCandidates(), contains(_bundled),
         reason: 'иначе приложение не найдёт собственный ffmpeg и '
@@ -75,7 +75,7 @@ void main() {
     // Тесты идут и на Linux-раннере: раскладка Windows должна собираться
     // там так же, как на самой Windows.
     expect(FfmpegLocator.bundledPaths(appDir: _appDir, windows: true),
-        [_bundled, r'C:\Users\sled\Desktop\subtitler\ffmpeg.exe']);
+        [_bundled, r'C:\Users\user\Desktop\subtitler\ffmpeg.exe']);
     expect(FfmpegLocator.bundledPaths(appDir: '/opt/subtitler', windows: false),
         ['/opt/subtitler/tools/ffmpeg/ffmpeg', '/opt/subtitler/ffmpeg']);
   });

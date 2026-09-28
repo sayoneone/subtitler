@@ -19,8 +19,8 @@ import '../../support/media.dart';
 import '../support.dart';
 import 'review_test_support.dart';
 
-const _video = '/видео/дело 1/clip.mp4';
-const _burned = '/видео/дело 1/clip_ru.mp4';
+const _video = '/видео/папка 1/clip.mp4';
+const _burned = '/видео/папка 1/clip_ru.mp4';
 
 /// Выдуманная турецкая речь на репликах пробного ролика, узбекская модель
 /// пишет кальку: язык выбирается уверенно (как в app_controller_test).
@@ -132,12 +132,12 @@ void main() {
     ) async {
       final rig = await pumpReview(tester);
 
-      rig.controller.debugEmulate(videoPath: '/видео/дело 2/другое.mp4');
+      rig.controller.debugEmulate(videoPath: '/видео/папка 2/другое.mp4');
       await tester.pump();
 
       expect(rig.players, hasLength(2));
       expect(rig.players.first.disposed, isTrue);
-      expect(rig.players.last.opened, ['/видео/дело 2/другое.mp4']);
+      expect(rig.players.last.opened, ['/видео/папка 2/другое.mp4']);
       expect(rig.players.last.disposed, isFalse);
       await finishReview(tester, rig);
     });
@@ -528,7 +528,7 @@ void main() {
     // Замечание ревью P5: после «Отмены» платной смены языка распознанное
     // на новом языке сохраняется, и сообщение зовёт вернуться к нему через
     // «Не тот язык?». А в меню у этого языка было написано «распознать
-    // заново — оплачивается»: следователь решал, что оплаченное пропало.
+    // заново — оплачивается»: человек решал, что оплаченное пропало.
     testWidgets('после отмены платной смены языка язык в меню подписан '
         '«начато»', (tester) async {
       await tester.binding.setSurfaceSize(kWideWindow);
@@ -935,7 +935,7 @@ void main() {
     });
 
     // После сохранения .srt и сессия удалены — в папке программы только
-    // готовое видео, и плашка говорит о нём, а не о «файлах»: следователь
+    // готовое видео, и плашка говорит о нём, а не о «файлах»: человек
     // открыл бы папку и не нашёл там субтитров.
     testWidgets('плашка о папке программы после сохранения говорит о '
         'готовом видео', (tester) async {

@@ -11,7 +11,7 @@ import 'preview_player.dart';
 /// Предпросмотр на Windows через media_kit (libmpv + ANGLE рядом с exe).
 ///
 /// Выбран потому, что не опирается ни на Media Foundation, ни на кодеки ОС:
-/// на N/LTSC-редакциях служебных ПК их нет, а libmpv везёт свой ffmpeg.
+/// в N/LTSC-редакциях Windows их нет, а libmpv везёт свой ffmpeg.
 class MediaKitPreviewPlayer implements PreviewPlayer {
   MediaKitPreviewPlayer({DebugLog? log}) : _log = log ?? DebugLog.instance {
     _player = Player(
@@ -19,14 +19,14 @@ class MediaKitPreviewPlayer implements PreviewPlayer {
         title: 'Subtitler',
         // Только локальные файлы. По умолчанию разрешены ещё http, tcp, udp и
         // прочие: контейнер вроде HLS-плейлиста мог бы заставить плеер выйти
-        // в сеть. Служебному ПК это ни к чему.
+        // в сеть. Предпросмотру это ни к чему.
         protocolWhitelist: ['file'],
       ),
     );
     _video = VideoController(
       _player,
       // Программное декодирование. Для роликов из мессенджеров (480p) это
-      // дёшево, зато не зависит от видеодрайверов служебных ПК и от RDP.
+      // дёшево, зато не зависит ни от видеодрайверов, ни от RDP.
       configuration: const VideoControllerConfiguration(hwdec: 'no'),
     );
     _subscriptions.addAll([
@@ -145,7 +145,7 @@ class MediaKitPreviewPlayer implements PreviewPlayer {
     await native.setProperty('sub-auto', 'no');
     await native.setProperty('sid', 'no');
     // media_kit включает дисковый кеш демуксера. Для локального файла он не
-    // нужен, а кадры служебного видео во временных файлах — лишний след.
+    // нужен, а кадры видео пользователя во временных файлах — лишний след.
     await native.setProperty('cache-on-disk', 'no');
     _mpvTuned = true;
   }

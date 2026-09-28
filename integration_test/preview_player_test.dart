@@ -55,7 +55,7 @@ void main() {
 
   setUpAll(() async {
     if (ffmpeg == null) return;
-    // Пробел и кириллица в пути — как у следователя на рабочем столе.
+    // Пробел и кириллица в пути — как у пользователя на рабочем столе.
     dir = Directory.systemTemp.createTempSync('subtitler_smoke');
     final folder = Directory(p.join(dir.path, 'папка с пробелом'))
       ..createSync();

@@ -49,7 +49,7 @@ void main() {
     test('вместо папки «…», имя файла остаётся — и в памяти, и в файле',
         () async {
       final log = DebugLog()..attachFile(path);
-      final video = p.join(tmp.path, 'Дела', 'Дело №7 (тест)', 'clip.mp4');
+      final video = p.join(tmp.path, 'Записи', 'Папка №7 (тест)', 'clip.mp4');
       log.hideFolderOf(video);
       log.info('Выбрано видео: $video');
       log.error('ffmpeg ✘ код 1\n'
@@ -58,31 +58,31 @@ void main() {
       await log.close();
 
       for (final text in [log.asText(), File(path).readAsStringSync()]) {
-        expect(text, isNot(contains('Дело №7')));
+        expect(text, isNot(contains('Папка №7')));
         expect(text, contains(p.join('…', 'clip.mp4')));
       }
     });
 
     test('вложенная папка прячется целиком, а не по родительской', () {
       final log = DebugLog();
-      final outer = p.join(tmp.path, 'Дела', 'clip.mp4');
-      final inner = p.join(tmp.path, 'Дела', 'Дело №7', 'clip.mp4');
+      final outer = p.join(tmp.path, 'Записи', 'clip.mp4');
+      final inner = p.join(tmp.path, 'Записи', 'Папка №7', 'clip.mp4');
       log
         ..hideFolderOf(outer)
         ..hideFolderOf(inner);
       expect(log.mask(inner), p.join('…', 'clip.mp4'));
     });
 
-    // Перетащить могут и саму папку дела вместо видео — у программы для
+    // Перетащить могут и саму папку вместо видео — у программы для
     // этого есть отдельное сообщение. Раньше пряталась только папка над
-    // ней, и название дела оставалось в журнале.
+    // ней, и её название оставалось в журнале.
     test('перетащили папку — прячется и она сама', () {
       final log = DebugLog();
-      final folder = Directory(p.join(tmp.path, 'Дела', 'Дело №7 (тест)'))
+      final folder = Directory(p.join(tmp.path, 'Записи', 'Папка №7 (тест)'))
         ..createSync(recursive: true);
       log.hideFolderOf(folder.path);
       log.warn('Видео не принято: Не видео: ${folder.path} (это папка)');
-      expect(log.asText(), isNot(contains('Дело №7')));
+      expect(log.asText(), isNot(contains('Папка №7')));
       expect(log.asText(), contains('Не видео: … (это папка)'));
     });
 
@@ -98,16 +98,16 @@ void main() {
       const key = 'AQVN-vydumannyj-testovyj-klyuch-0001';
       log
         ..redact(key)
-        ..hideFolderOf(p.join(tmp.path, 'Дело', 'clip.mp4'));
-      log.warn('ключ $key, папка ${p.join(tmp.path, 'Дело')}');
+        ..hideFolderOf(p.join(tmp.path, 'Личное', 'clip.mp4'));
+      log.warn('ключ $key, папка ${p.join(tmp.path, 'Личное')}');
       expect(log.asText(), contains('***КЛЮЧ***'));
       expect(log.asText(), isNot(contains(key)));
-      expect(log.asText(), isNot(contains('Дело')));
+      expect(log.asText(), isNot(contains('Личное')));
     });
 
     test('вывод настоящего ffmpeg тоже проходит через маску', () async {
       final log = DebugLog();
-      final missing = p.join(tmp.path, 'Дело №7 (тест)', 'нет такого.mp4');
+      final missing = p.join(tmp.path, 'Папка №7 (тест)', 'нет такого.mp4');
       log.hideFolderOf(missing);
       final ffmpeg = ProcessFfmpegRunner(
         ffmpegPath: ProcessFfmpegRunner.fromEnvironment().ffmpegPath,
@@ -115,10 +115,10 @@ void main() {
       );
       final result = await ffmpeg.run(['-hide_banner', '-i', missing]);
       expect(result.ok, isFalse);
-      expect(result.log, contains('Дело №7'),
+      expect(result.log, contains('Папка №7'),
           reason: 'ffmpeg правда печатает путь — маска журнала его прячет');
       expect(log.asText(), contains('нет такого.mp4'));
-      expect(log.asText(), isNot(contains('Дело №7')));
+      expect(log.asText(), isNot(contains('Папка №7')));
     });
   });
 

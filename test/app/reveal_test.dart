@@ -16,9 +16,9 @@ void main() {
     });
 
     test('Windows: прямые слеши превращаются в обратные', () {
-      final command = revealCommand('C:/дело/clip_ru.mp4',
+      final command = revealCommand('C:/папка/clip_ru.mp4',
           operatingSystem: 'windows')!;
-      expect(command.arguments.last.trimRight(), r'C:\дело\clip_ru.mp4');
+      expect(command.arguments.last.trimRight(), r'C:\папка\clip_ru.mp4');
     });
 
     test('Windows: путь без пробелов тоже уходит в кавычках — запятая и «=» '
@@ -29,10 +29,10 @@ void main() {
       // (табуляция, кавычка), поэтому в аргументе должен быть пробел: в
       // конце пути его отбрасывает сам Проводник.
       for (final path in [
-        r'C:\Дела\12,13\VID_0001_ru.mp4',
-        r'C:\Дела\a=b\VID_0001_ru.mp4',
-        r'C:\Дела\VID,3_ru.mp4',
-        r'C:\Дела\VID_0001_ru.mp4',
+        r'C:\Записи\12,13\VID_0001_ru.mp4',
+        r'C:\Записи\a=b\VID_0001_ru.mp4',
+        r'C:\Записи\VID,3_ru.mp4',
+        r'C:\Записи\VID_0001_ru.mp4',
       ]) {
         final command = revealCommand(path, operatingSystem: 'windows')!;
         expect(command.arguments.first, '/select,');
@@ -44,7 +44,7 @@ void main() {
     });
 
     test('Windows: путь с пробелом не меняется — кавычки поставит Dart', () {
-      const path = r'C:\Дела\12, 13\VID_0001_ru.mp4';
+      const path = r'C:\Записи\12, 13\VID_0001_ru.mp4';
       expect(revealCommand(path, operatingSystem: 'windows')!.arguments.last,
           path);
     });
@@ -78,7 +78,7 @@ void main() {
     test('код 1 от Проводника считается успехом', () async {
       final calls = <List<String>>[];
       final ok = await revealInFileManager(
-        r'C:\дело\clip_ru.mp4',
+        r'C:\папка\clip_ru.mp4',
         operatingSystem: 'windows',
         log: DebugLog(),
         run: (exe, args) async {
@@ -88,7 +88,8 @@ void main() {
       );
       expect(ok, isTrue);
       // Пробел в конце — чтобы Dart взял путь в кавычки (см. revealCommand).
-      expect(calls.single, ['explorer.exe', '/select,', r'C:\дело\clip_ru.mp4 ']);
+      expect(calls.single,
+          ['explorer.exe', '/select,', r'C:\папка\clip_ru.mp4 ']);
     });
 
     test('ненулевой код на macOS — неудача, но без исключения', () async {

@@ -11,7 +11,7 @@ import '../support/fakes.dart';
 import '../support/media.dart';
 import 'support.dart';
 
-const _video = '/видео/дело 7/беседа во дворе.mp4';
+const _video = '/видео/папка 7/беседа во дворе.mp4';
 
 /// Держит извлечение звука, пока тест не вызовет [release]: так «Отмена»
 /// нажимается ровно на шаге «Готовим звук».

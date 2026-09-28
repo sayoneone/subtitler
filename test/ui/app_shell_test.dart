@@ -28,7 +28,7 @@ void main() {
   testWidgets('на экране предпросмотра сообщение и вопрос о длинном ролике '
       'показываются по одному разу', (tester) async {
     // Их показывает оболочка над любым экраном. Экран предпросмотра рисовал
-    // их ещё раз у себя, и следователь видел одно и то же дважды: плашку
+    // их ещё раз у себя, и человек видел одно и то же дважды: плашку
     // над экраном и такую же в шапке, диалог и плашку с теми же кнопками.
     final h = await started();
     final session = sampleSession();
@@ -252,7 +252,7 @@ void main() {
 
     h.controller.debugEmulate(
       stage: AppStage.processing,
-      videoPath: '/видео/дело 3/беседа.mp4',
+      videoPath: '/видео/папка 3/беседа.mp4',
       progress: const ProcessingProgress(ProcessingStep.preparingAudio),
     );
     await tester.pump();
@@ -333,7 +333,7 @@ void main() {
 
     h.controller.debugEmulate(
       longVideoQuestion: const LongVideoQuestion(
-        videoPath: '/видео/дело 5/долгая беседа.mp4',
+        videoPath: '/видео/папка 5/долгая беседа.mp4',
         duration: Duration(minutes: 42, seconds: 5),
       ),
     );
@@ -484,7 +484,7 @@ void main() {
   testWidgets('закрытие окна во время сохранения останавливает ffmpeg и '
       'убирает временный файл рядом с видео', (tester) async {
     // Dart не привязывает ffmpeg к программе: без остановки он кодировал
-    // бы дальше без окна и оставил <имя>_ru.partial.mp4 рядом с вещдоком.
+    // бы дальше без окна и оставил <имя>_ru.partial.mp4 рядом с исходником.
     final h = (await tester.runAsync(started))!;
     final video = p.join(h.root.path, 'videos', 'беседа.mp4');
     final partial = File(p.join(h.root.path, 'videos', 'беседа_ru.partial.mp4'));

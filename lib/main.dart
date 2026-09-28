@@ -18,7 +18,7 @@ void main(List<String> args) {
   WidgetsFlutterBinding.ensureInitialized();
   final log = DebugLog.instance;
   // Первым делом: всё, что упадёт дальше, должно попасть в журнал, а не
-  // только в консоль, которой у следователя нет.
+  // только в консоль, которой у пользователя нет.
   installErrorLogging(log);
   initPreviewPlayers(log: log);
   // Настоящие сервисы (AppServices.real). Отладочный стенд открывается из

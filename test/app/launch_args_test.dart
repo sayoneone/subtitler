@@ -6,7 +6,8 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Видео, перетащенное на значок, приходит первым аргументом', () {
-    expect(videoArgument([r'C:\Дела\запись 1.mp4']), r'C:\Дела\запись 1.mp4');
+    expect(
+        videoArgument([r'C:\Записи\запись 1.mp4']), r'C:\Записи\запись 1.mp4');
   });
 
   test('Ключи запуска и пустые аргументы пропускаются', () {
@@ -49,9 +50,9 @@ void main() {
       // Пока Dart не готов, запускалка копит аргументы у себя.
       expect(sent, ['ready']);
 
-      await launchAgain(['--flag', r'C:\Дела\запись 2.mp4']);
+      await launchAgain(['--flag', r'C:\Записи\запись 2.mp4']);
       await launchAgain(const []);
-      expect(received, [r'C:\Дела\запись 2.mp4', null]);
+      expect(received, [r'C:\Записи\запись 2.mp4', null]);
     });
 
     test('на платформе без запускалки Windows слушать нечего — без ошибки',

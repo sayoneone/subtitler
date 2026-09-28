@@ -37,7 +37,7 @@ void main() {
   });
 
   test('Документ с расширением .mp4 — не видео', () async {
-    final fake = File('${tmp.path}/протокол.mp4')
+    final fake = File('${tmp.path}/документ.mp4')
       ..writeAsStringSync('Выдуманный текст, а вовсе не видео.');
     await expectLater(
         probeVideo(testRunner, fake.path), throwsA(isA<NotAVideoException>()));
