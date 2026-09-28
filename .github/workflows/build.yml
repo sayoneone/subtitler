@@ -238,6 +238,137 @@ jobs:
             exit 1
           }
 
+      # Первый запуск у следователя: ключа и настроек ещё нет. Программа
+      # должна показать экран ввода ключа и открыть руководство отдельным
+      # окном (windows/runner/help_window.cpp). На раннере ключа и настроек
+      # тоже нет — запускаем собранный exe из папки архива и смотрим на окна.
+      # Снимки окон — в артефакте first-launch: так их видно и без Windows.
+      - name: Первый запуск — экран ключа и окно руководства
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path first-launch | Out-Null
+          $app = $null
+          try {
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          using System.Text;
+
+          public static class TopWindows {
+            delegate bool EnumProc(IntPtr hwnd, IntPtr lparam);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr lparam);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+            [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+            [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+
+            // Видимые окна процесса с заголовком.
+            public static IntPtr[] Of(uint pid) {
+              var found = new List<IntPtr>();
+              EnumWindows((hwnd, unused) => {
+                uint owner;
+                GetWindowThreadProcessId(hwnd, out owner);
+                if (owner == pid && IsWindowVisible(hwnd) && Title(hwnd).Length > 0) found.Add(hwnd);
+                return true;
+              }, IntPtr.Zero);
+              return found.ToArray();
+            }
+
+            public static string Title(IntPtr hwnd) {
+              var text = new StringBuilder(512);
+              GetWindowText(hwnd, text, text.Capacity);
+              return text.ToString();
+            }
+          }
+          '@
+
+            $app = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
+            $windows = @()
+            for ($i = 0; $i -lt 60 -and $windows.Count -lt 2; $i++) {
+              Start-Sleep -Milliseconds 500
+              if ($app.HasExited) { throw "subtitler.exe завершился при запуске с кодом $($app.ExitCode)" }
+              $windows = @([TopWindows]::Of([uint32]$app.Id))
+            }
+            # Первый кадр в обоих окнах и загрузка руководства.
+            Start-Sleep -Seconds 4
+            if ($app.HasExited) { throw "subtitler.exe закрылся сам с кодом $($app.ExitCode)" }
+            $windows = @([TopWindows]::Of([uint32]$app.Id))
+            $titles = @($windows | ForEach-Object { [TopWindows]::Title($_) })
+            Write-Host "Окна программы: $($titles -join ' | ')"
+
+            # Снимок каждого окна отдельно (экран раннера — 1024x768, окна
+            # перекрывают друг друга) и всего экрана.
+            $n = 0
+            foreach ($hwnd in $windows) {
+              $r = New-Object TopWindows+Rect
+              [TopWindows]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+              $bmp = New-Object System.Drawing.Bitmap ($r.Right - $r.Left), ($r.Bottom - $r.Top)
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $hdc = $g.GetHdc()
+              # PW_RENDERFULLCONTENT: и то, что рисует DirectX (Flutter через ANGLE).
+              [TopWindows]::PrintWindow($hwnd, $hdc, 2) | Out-Null
+              $g.ReleaseHdc($hdc)
+              $n++
+              $bmp.Save((Join-Path first-launch "window-$n.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+              $g.Dispose(); $bmp.Dispose()
+            }
+            Add-Type -AssemblyName System.Windows.Forms
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $screen = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $g = [System.Drawing.Graphics]::FromImage($screen)
+            $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $screen.Save((Join-Path first-launch 'screen.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+
+            if ($titles -notcontains 'Subtitler') { throw "Нет главного окна Subtitler: $($titles -join ', ')" }
+            if ($titles -notcontains 'Subtitler — как пользоваться') {
+              throw "Руководство не открылось отдельным окном: $($titles -join ', ')"
+            }
+
+            # Какой экран в главном окне, видно по журналу программы.
+            $log = Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter subtitler.log -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if (-not $log) { throw "Журнал программы не найден в LOCALAPPDATA" }
+            $text = Get-Content $log.FullName -Raw -Encoding utf8
+            Copy-Item $log.FullName first-launch/subtitler.log
+            foreach ($line in @('Ключ ещё не сохранён', 'Первый запуск — открываем руководство')) {
+              if (-not $text.Contains($line)) { throw "В журнале нет строки «$line»" }
+            }
+            Write-Host "Экран ключа показан, руководство открыто отдельным окном"
+          } catch {
+            Write-Host "::error title=Первый запуск::$($_.Exception.Message)"
+            exit 1
+          } finally {
+            if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-launch
+          path: first-launch
+          retention-days: 14
+
+      # Снимки экранов программы для руководства (assets/help/app-*.png):
+      # на Windows, со шрифтами Windows. Только при ручном запуске сборки —
+      # интеграционный тест собирает ещё одно приложение, это минуты.
+      - name: Снимки экранов для руководства
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SUBTITLER_SCREENSHOTS: ${{ github.workspace }}\help-screenshots
+        run: flutter test integration_test/help_screenshots_test.dart -d windows
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: help-screenshots
+          path: help-screenshots
+          retention-days: 14
+
       - uses: actions/upload-artifact@v4
         with:
           name: subtitler-windows-x64
