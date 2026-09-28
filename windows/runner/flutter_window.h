@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "help_window.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -40,6 +41,11 @@ class FlutterWindow : public Win32Window {
   void ReceiveArguments(const COPYDATASTRUCT& data);
   void SendArguments(const std::vector<std::string>& arguments);
 
+  // Opens the "How to use" window titled |title| ("ru.subtitler/help"), or
+  // brings it to the front if it is already open. Returns whether it is on
+  // the screen.
+  bool OpenHelp(const std::wstring& title);
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -52,6 +58,10 @@ class FlutterWindow : public Win32Window {
       instance_channel_;
   bool dart_ready_ = false;
   std::vector<std::vector<std::string>> pending_arguments_;
+
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      help_channel_;
+  std::unique_ptr<HelpWindow> help_window_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

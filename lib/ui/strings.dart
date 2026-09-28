@@ -12,6 +12,7 @@ abstract final class AppStrings {
   // ------------------------------------------------------------ оболочка
   static const appTitle = 'Subtitler';
   static const settings = 'Настройки';
+  static const help = 'Как пользоваться';
   static const more = 'Ещё';
   static const menuLog = 'Журнал работы';
   static const menuDebugStand = 'Отладочный стенд';
@@ -41,6 +42,21 @@ abstract final class AppStrings {
       'Не удалось сохранить журнал — причина записана в журнал работы';
   static const logFileMissing = 'Файл журнала ещё не создан';
 
+  // --------------------------------------------------------- руководство
+  /// Заголовок экрана руководства — он же первая строка guide.md.
+  static const helpTitle = 'Как пользоваться Subtitler';
+
+  /// Заголовок отдельного окна руководства в панели задач.
+  static const helpWindowTitle = 'Subtitler — как пользоваться';
+  static const helpLoadFailed = 'Руководство не открылось';
+  static const helpCover = 'Начало';
+  static const helpChapters = 'Разделы';
+  static const helpPrevious = 'Назад';
+  static const helpNext = 'Дальше';
+  static String helpPageOf(int page, int count) => '$page из $count';
+  static String linkCopied(String url) =>
+      'Ссылка скопирована — вставьте её в браузер: $url';
+
   // ------------------------------------------------------------- запуск
   static const starting = 'Подготовка…';
 
@@ -59,33 +75,28 @@ abstract final class AppStrings {
   // ---------------------------------------------------------------- ключ
   static const keyTitle = 'Ключ Яндекс Облака';
   static const keyIntro = 'Чтобы распознавать речь и переводить её на '
-      'русский, программе нужен API-ключ сервисного аккаунта Яндекс Облака. '
-      'У сервисного аккаунта должны быть две роли:';
-  static const keyRoleStt = 'ai.speechkit-stt.user';
-  static const keyRoleSttWhat = 'распознавание речи';
-  static const keyRoleTranslate = 'ai.translate.user';
-  static const keyRoleTranslateWhat = 'перевод';
+      'русский, программе нужен API-ключ Яндекс Облака.';
   static const keyPrivacy = 'Ключ хранится только здесь, в защищённом '
       'хранилище системы, и отправляется только в Яндекс Облако.';
   static const keyHowTo = 'Как создать ключ';
 
-  /// Сверено с документацией Яндекс Облака (yandex.cloud/ru/docs/iam,
-  /// 2026-09-25): назначение роли и создание API-ключа в консоли.
+  /// Коротко — то же, что в разделе 1 руководства (assets/help/guide.md),
+  /// где каждый шаг с картинкой.
   static const keyHowToSteps = [
-    'Откройте консоль Яндекс Облака и выберите каталог.',
-    'В сервисе Identity and Access Management → «Сервисные аккаунты» '
-        'выберите сервисный аккаунт или создайте новый.',
-    'На вкладке каталога «Права доступа» нажмите «Настроить доступ», '
-        'выберите «Сервисные аккаунты» и этот аккаунт, нажмите «Добавить '
-        'роль», добавьте ai.speechkit-stt.user и ai.translate.user, затем '
-        '«Сохранить».',
-    'Откройте сервисный аккаунт, нажмите «Создать новый ключ» → «Создать '
-        'API-ключ». В поле «Область действия» отметьте '
-        'yc.ai.speechkitStt.execute и yc.ai.translate.execute и нажмите '
-        '«Создать».',
+    'Откройте aistudio.yandex.ru и войдите с аккаунтом Яндекса.',
+    'Выберите проект и при необходимости платёжный аккаунт.',
+    'Нажмите «Создать API-ключ» справа вверху, впишите описание, выберите '
+        'срок действия и нажмите «Создать».',
     'Скопируйте секретный ключ (он начинается с AQVN) и вставьте его ниже. '
-        'После закрытия окна консоль его больше не покажет.',
+        'После закрытия окна его больше не покажут.',
   ];
+  static const keyHowToGuide = 'Подробно, с картинками';
+
+  /// Для администратора облака, который создаёт ключ сам: у сервисного
+  /// аккаунта должны быть обе роли, иначе проверка ключа их назовёт.
+  static const keyRoles = 'Ключ сервисного аккаунта из консоли облака тоже '
+      'подойдёт: нужны роли ai.speechkit-stt.user (распознавание речи) и '
+      'ai.translate.user (перевод).';
   static const keyField = 'API-ключ';
   static const keyFieldHint = 'AQVN…';
   static const keySubmit = 'Проверить и сохранить';

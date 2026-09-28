@@ -12,6 +12,8 @@ import '../app/user_error.dart';
 import '../core/logging.dart';
 import 'debug_screen.dart';
 import 'error_panel.dart';
+import 'help/help_view.dart';
+import 'help/help_window.dart' as help;
 import 'home_view.dart';
 import 'log_actions.dart';
 import 'log_panel.dart';
@@ -22,8 +24,12 @@ import 'review/review_view.dart';
 import 'settings_screen.dart';
 import 'strings.dart';
 
-/// Оболочка приложения: заголовок «Subtitler», «⚙ Настройки», меню «⋮» и
-/// один экран на этап контроллера.
+/// Оболочка приложения: заголовок «Subtitler», «Как пользоваться»,
+/// «⚙ Настройки», меню «⋮» и один экран на этап контроллера.
+///
+/// Руководство открывается отдельным окном, а где его нет (Android) —
+/// экраном поверх программы. При первом запуске оно открывается само
+/// ([AppController.takeFirstLaunchHelp]).
 ///
 /// Журнал работы по умолчанию скрыт: он живёт в боковой панели справа и
 /// выдвигается пунктом «⋮ → Журнал работы» или сочетанием Ctrl+Shift+L.
@@ -40,11 +46,16 @@ class AppShell extends StatefulWidget {
   /// Диалог выбора видео; в виджет-тестах — подделка.
   final Future<String?> Function() pickVideo;
 
+  /// Отдельное окно руководства: `false` — окна нет, руководство
+  /// показывается экраном. В виджет-тестах — подделка.
+  final Future<bool> Function() openHelpWindow;
+
   const AppShell({
     super.key,
     required this.controller,
     this.playerFactory = createPreviewPlayer,
     this.pickVideo = pickVideoFile,
+    this.openHelpWindow = help.openHelpWindow,
   });
 
   @override
@@ -78,6 +89,7 @@ class _AppShellState extends State<AppShell> {
     );
     unawaited(c.init());
     _maybeAskLongVideo();
+    _maybeShowFirstLaunchHelp();
   }
 
   @override
@@ -102,6 +114,7 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     setState(() {});
     _maybeAskLongVideo();
+    _maybeShowFirstLaunchHelp();
   }
 
   /// Окно закрывают: сохранение и подготовка звука останавливаются, их
@@ -155,6 +168,24 @@ class _AppShellState extends State<AppShell> {
         },
       ),
     )));
+  }
+
+  /// «Как пользоваться»: отдельное окно, а если его нет — экран.
+  Future<void> _openHelp() async {
+    if (await widget.openHelpWindow()) return;
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => const HelpScreen(),
+    ));
+  }
+
+  void _maybeShowFirstLaunchHelp() {
+    if (!c.takeFirstLaunchHelp()) return;
+    // После кадра: экран этапа (ключ или главный) уже на месте, и экран
+    // руководства ляжет поверх него, а не под него.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_openHelp());
+    });
   }
 
   void _openDebugStand() {
@@ -219,6 +250,22 @@ class _AppShellState extends State<AppShell> {
       appBar: AppBar(
         title: const Text(AppStrings.appTitle),
         actions: [
+          // На телефоне и в узком окне — только значок: две подписи и
+          // меню в строку заголовка не помещаются.
+          if (c.isMobile || width < 600)
+            IconButton(
+              key: const ValueKey('help'),
+              tooltip: AppStrings.help,
+              onPressed: () => unawaited(_openHelp()),
+              icon: const Icon(Icons.help_outline),
+            )
+          else
+            TextButton.icon(
+              key: const ValueKey('help'),
+              onPressed: () => unawaited(_openHelp()),
+              icon: const Icon(Icons.help_outline),
+              label: const Text(AppStrings.help),
+            ),
           TextButton.icon(
             key: const ValueKey('settings'),
             onPressed: c.stage == AppStage.starting ? null : _openSettings,
@@ -283,7 +330,10 @@ class _AppShellState extends State<AppShell> {
   Widget _screen() => switch (c.stage) {
         AppStage.starting => const _StartingView(),
         AppStage.broken => BrokenView(controller: c),
-        AppStage.needsKey => OnboardingView(controller: c),
+        AppStage.needsKey => OnboardingView(
+            controller: c,
+            onOpenHelp: () => unawaited(_openHelp()),
+          ),
         AppStage.home => HomeView(
             controller: c,
             dragging: _dragging,

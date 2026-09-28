@@ -2,10 +2,12 @@
 
 #include <flutter/standard_method_codec.h>
 
+#include <algorithm>
 #include <optional>
 #include <utility>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "utils.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
                              std::wstring instance_marker)
@@ -56,6 +58,32 @@ bool FlutterWindow::OnCreate() {
   ::SetPropW(GetHandle(), instance_marker_.c_str(),
              reinterpret_cast<HANDLE>(1));
 
+  // "How to use" (lib/ui/help/help_window.dart): {"title": <UTF-8>}.
+  help_channel_ =
+      std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+          flutter_controller_->engine()->messenger(), "ru.subtitler/help",
+          &flutter::StandardMethodCodec::GetInstance());
+  help_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<flutter::EncodableValue>& call,
+             std::unique_ptr<flutter::MethodResult<flutter::EncodableValue>>
+                 result) {
+        if (call.method_name() != "open") {
+          result->NotImplemented();
+          return;
+        }
+        std::wstring title = L"Subtitler";
+        if (const auto* args =
+                std::get_if<flutter::EncodableMap>(call.arguments())) {
+          auto found = args->find(flutter::EncodableValue("title"));
+          if (found != args->end()) {
+            if (const auto* text = std::get_if<std::string>(&found->second)) {
+              title = Utf16FromUtf8(*text);
+            }
+          }
+        }
+        result->Success(flutter::EncodableValue(OpenHelp(title)));
+      });
+
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
@@ -72,11 +100,56 @@ bool FlutterWindow::OnCreate() {
 
 void FlutterWindow::OnDestroy() {
   instance_channel_ = nullptr;
+  help_channel_ = nullptr;
+  // The program ends with its main window: the guide goes with it.
+  help_window_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
 
   Win32Window::OnDestroy();
+}
+
+bool FlutterWindow::OpenHelp(const std::wstring& title) {
+  if (help_window_ && help_window_->IsOpen()) {
+    HWND help = help_window_->GetHandle();
+    if (::IsIconic(help)) {
+      ::ShowWindow(help, SW_RESTORE);
+    }
+    ::SetForegroundWindow(help);
+    return true;
+  }
+
+  // A closed window is not reused: it has lost its Flutter engine.
+  help_window_ = std::make_unique<HelpWindow>();
+  RECT main_frame{};
+  ::GetWindowRect(GetHandle(), &main_frame);
+  const Win32Window::Point origin(static_cast<unsigned int>(main_frame.left),
+                                  static_cast<unsigned int>(main_frame.top));
+  if (!help_window_->Create(title, origin, Win32Window::Size(900, 860))) {
+    help_window_ = nullptr;
+    return false;
+  }
+
+  // Create() centers the window on the screen, over the main window and
+  // its key field. On the first launch both are needed, so the guide goes
+  // to the right edge of the main window's screen.
+  HWND help = help_window_->GetHandle();
+  HMONITOR monitor = ::MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
+  MONITORINFO monitor_info{};
+  monitor_info.cbSize = sizeof(monitor_info);
+  RECT help_frame{};
+  if (::GetMonitorInfo(monitor, &monitor_info) &&
+      ::GetWindowRect(help, &help_frame)) {
+    const RECT& work = monitor_info.rcWork;
+    const LONG width = help_frame.right - help_frame.left;
+    const LONG margin = (work.right - work.left) / 100;
+    const LONG x = std::max(work.left, work.right - width - margin);
+    const LONG y = work.top + std::min(margin, help_frame.top - work.top);
+    ::SetWindowPos(help, nullptr, x, y, 0, 0,
+                   SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+  }
+  return true;
 }
 
 void FlutterWindow::ReceiveArguments(const COPYDATASTRUCT& data) {

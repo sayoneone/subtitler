@@ -367,6 +367,7 @@ void main() {
           asked++;
           return null; // человек передумал
         },
+        openHelpWindow: () async => true,
       ),
     ));
     await tester.tap(find.text('Выбрать файл'));

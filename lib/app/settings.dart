@@ -15,23 +15,31 @@ class AppSettings {
   /// Язык прошлой обработки: его берём, если все модели промолчали.
   final String? lastLanguage;
 
+  /// Руководство уже открывалось само — при первом запуске. Дальше оно
+  /// открывается только кнопкой «Как пользоваться».
+  final bool helpShown;
+
   const AppSettings({
     this.detectionCandidates = kDefaultDetectionCandidates,
     this.lastLanguage,
+    this.helpShown = false,
   });
 
   AppSettings copyWith({
     List<String>? detectionCandidates,
     String? lastLanguage,
+    bool? helpShown,
   }) =>
       AppSettings(
         detectionCandidates: detectionCandidates ?? this.detectionCandidates,
         lastLanguage: lastLanguage ?? this.lastLanguage,
+        helpShown: helpShown ?? this.helpShown,
       );
 
   Map<String, dynamic> toJson() => {
         'detectionCandidates': detectionCandidates,
         'lastLanguage': lastLanguage,
+        'helpShown': helpShown,
       };
 
   /// Читает настройки, прощая всё: неизвестные коды выбрасываются, пустой
@@ -51,6 +59,7 @@ class AppSettings {
           : List.unmodifiable(candidates.toSet()),
       lastLanguage:
           last is String && languageByCode(last) != null ? last : null,
+      helpShown: json['helpShown'] == true,
     );
   }
 }

@@ -35,18 +35,40 @@ Future<AppHarness> started({
 }
 
 /// Приложение на [controller] в окне [size]; плеер — подделка.
+///
+/// Отдельное окно руководства — тоже подделка [helpWindow]: по умолчанию
+/// оно «открывается», и руководство первого запуска не закрывает собой
+/// экран, который проверяет тест.
 Future<void> pumpApp(
   WidgetTester tester,
   AppController controller, {
   Size size = const Size(1280, 900),
+  HelpWindowSpy? helpWindow,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
+  final spy = helpWindow ?? HelpWindowSpy();
   await tester.pumpWidget(SubtitlerApp(
     controller: controller,
     playerFactory: ({DebugLog? log}) => FakePreviewPlayer(),
+    openHelpWindow: spy.open,
   ));
   await tester.pump();
+}
+
+/// Подделка отдельного окна руководства: считает открытия. [available] —
+/// есть ли на «платформе» отдельные окна; нет — руководство покажется
+/// экраном внутри программы.
+class HelpWindowSpy {
+  final bool available;
+  int opened = 0;
+
+  HelpWindowSpy({this.available = true});
+
+  Future<bool> open() async {
+    opened++;
+    return available;
+  }
 }
 
 /// Снимает приложение с экрана и освобождает контроллер с его папкой.

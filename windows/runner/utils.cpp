@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <windows.h>
 
+#include <climits>
 #include <iostream>
 #include <vector>
 
@@ -112,4 +113,26 @@ std::wstring GetInstanceName() {
     }
   }
   return name;
+}
+
+std::wstring Utf16FromUtf8(const std::string& utf8_string) {
+  if (utf8_string.empty() ||
+      utf8_string.size() > static_cast<size_t>(INT_MAX)) {
+    return std::wstring();
+  }
+  const int input_length = static_cast<int>(utf8_string.size());
+  const int target_length =
+      ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8_string.data(),
+                            input_length, nullptr, 0);
+  if (target_length <= 0) {
+    return std::wstring();
+  }
+  std::wstring utf16_string(static_cast<size_t>(target_length), L'\0');
+  const int converted =
+      ::MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, utf8_string.data(),
+                            input_length, utf16_string.data(), target_length);
+  if (converted != target_length) {
+    return std::wstring();
+  }
+  return utf16_string;
 }
