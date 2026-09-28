@@ -266,7 +266,29 @@ jobs:
             [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
             [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
             [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+            [DllImport("user32.dll")] static extern IntPtr GetParent(IntPtr hwnd);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            static extern int GetClassName(IntPtr hwnd, StringBuilder text, int max);
             [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+
+            // Все окна верхнего уровня процесса, и скрытые: Flutter спрашивает
+            // Dart о выходе, только если такое окно у процесса одно
+            // (windows_lifecycle_manager.cc, IsLastWindowOfProcess).
+            public static string[] Describe(uint pid) {
+              var lines = new List<string>();
+              EnumWindows((hwnd, unused) => {
+                uint owner;
+                GetWindowThreadProcessId(hwnd, out owner);
+                if (owner == pid) {
+                  var cls = new StringBuilder(256);
+                  GetClassName(hwnd, cls, cls.Capacity);
+                  lines.Add(string.Format("{0} class={1} title='{2}' visible={3} parent={4}",
+                      hwnd, cls, Title(hwnd), IsWindowVisible(hwnd), GetParent(hwnd)));
+                }
+                return true;
+              }, IntPtr.Zero);
+              return lines.ToArray();
+            }
 
             // Видимые окна процесса с заголовком.
             public static IntPtr[] Of(uint pid) {
@@ -341,23 +363,48 @@ jobs:
             }
             Write-Host "Экран ключа показан, руководство открыто отдельным окном"
 
-            # Главное окно закрывают, пока руководство открыто. Программа
-            # должна выйти штатно — через AppShell._onExitRequested, который
-            # дописывает правки и журнал: последняя строка «Окно закрыто».
-            # Flutter спрашивает Dart о выходе, только когда закрывается
-            # последнее окно процесса, поэтому руководство закрывается первым
-            # (windows/runner/flutter_window.cpp, WM_CLOSE).
-            $main = $windows | Where-Object { [TopWindows]::Title($_) -eq 'Subtitler' } | Select-Object -First 1
-            [TopWindows]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-            if (-not $app.WaitForExit(20000)) {
-              throw "Программа не закрылась за 20 с после закрытия главного окна"
+            # Главное окно закрывают — программа должна выйти штатно, через
+            # AppShell._onExitRequested, который дописывает правки и журнал:
+            # последняя строка «Окно закрыто». Flutter спрашивает Dart о
+            # выходе, только когда закрывается последнее окно процесса, поэтому
+            # руководство закрывается первым (windows/runner/flutter_window.cpp,
+            # WM_CLOSE). Проверяется дважды: при открытом руководстве (первый
+            # запуск) и без него (второй запуск — руководство уже показано).
+            $failures = New-Object System.Collections.Generic.List[string]
+            function Test-Close($app, $label, $logCopy) {
+              [TopWindows]::Describe([uint32]$app.Id) | ForEach-Object { Write-Host "  $_" }
+              $main = @([TopWindows]::Of([uint32]$app.Id)) |
+                      Where-Object { [TopWindows]::Title($_) -eq 'Subtitler' } | Select-Object -First 1
+              [TopWindows]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+              if (-not $app.WaitForExit(20000)) {
+                $failures.Add("$($label): программа не закрылась за 20 с после закрытия главного окна")
+                Stop-Process -Id $app.Id -Force
+                return
+              }
+              $text = Get-Content $log.FullName -Raw -Encoding utf8
+              Copy-Item $log.FullName (Join-Path first-launch $logCopy) -Force
+              if ($text.Contains('Окно закрыто')) {
+                Write-Host "$($label): штатный выход"
+              } else {
+                $failures.Add("$($label): программа закрылась мимо штатного выхода, в журнале нет «Окно закрыто»")
+              }
             }
-            $text = Get-Content $log.FullName -Raw -Encoding utf8
-            Copy-Item $log.FullName first-launch/subtitler.log -Force
-            if (-not $text.Contains('Окно закрыто')) {
-              throw "Программа закрылась мимо штатного выхода: в журнале нет «Окно закрыто»"
+
+            Test-Close $app 'С открытым руководством' 'subtitler-1.log'
+
+            $app = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
+            $windows = @()
+            for ($i = 0; $i -lt 60 -and $windows.Count -lt 1; $i++) {
+              Start-Sleep -Milliseconds 500
+              $windows = @([TopWindows]::Of([uint32]$app.Id))
             }
-            Write-Host "Закрытие главного окна при открытом руководстве — штатный выход"
+            Start-Sleep -Seconds 4
+            $titles = @($windows | ForEach-Object { [TopWindows]::Title($_) })
+            Write-Host "Второй запуск, окна: $($titles -join ' | ')"
+            if ($titles.Count -ne 1) { $failures.Add("Второй запуск: руководство снова открылось само: $($titles -join ', ')") }
+            Test-Close $app 'Без руководства' 'subtitler-2.log'
+
+            if ($failures.Count) { throw ($failures -join '; ') }
           } catch {
             Write-Host "::error title=Первый запуск::$($_.Exception.Message)"
             exit 1
