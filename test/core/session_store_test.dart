@@ -144,7 +144,7 @@ void main() {
           cues: const [
             Cue(index: 1, range: TimeRange(0, 1.7),
                 orig: 'ertaga ertalab bozorga boramiz',
-                ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+                ru: 'правка пользователя', status: CueStatus.ok, flags: {}),
           ],
         );
 
@@ -155,7 +155,7 @@ void main() {
       expect(path, '${tmp.path}/clip.mp4.subtitler.uz-UZ.json');
 
       final restored = await store.loadBackup(video, 'uz-UZ', fp);
-      expect(restored!.cues.single.ru, 'правка следователя');
+      expect(restored!.cues.single.ru, 'правка пользователя');
       expect(await store.loadBackup(video, 'tr-TR', fp), isNull);
       expect(
           await store.loadBackup(video, 'uz-UZ',
@@ -190,7 +190,7 @@ void main() {
       final restored = await store.swapWithBackup(turkish, 'uz-UZ');
       expect(restored, isNotNull);
       expect(restored!.lang, 'uz-UZ');
-      expect(restored.cues.single.ru, 'правка следователя');
+      expect(restored.cues.single.ru, 'правка пользователя');
       expect(restored.langConfidence, isNull,
           reason: 'язык выбрал человек — жёлтая плашка больше не нужна');
       expect(restored.langRunnerUp, 'tr-TR');
@@ -220,7 +220,7 @@ void main() {
 
     Session edited(String video) => sessionFor(video).copyWith(cues: const [
           Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
-              ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+              ru: 'правка пользователя', status: CueStatus.ok, flags: {}),
         ]);
 
     test('Оборванная запись оставляет прежнюю сессию целой', () async {
@@ -251,7 +251,7 @@ void main() {
 
       expect(saved, '${tmp.path}/clip.mp4.subtitler.json');
       expect((await store.load(video, fp))!.cues.single.ru,
-          'правка следователя');
+          'правка пользователя');
       expect(
           tmp.listSync().map((e) => e.uri.pathSegments.last).toSet(),
           {'clip.mp4', 'clip.mp4.subtitler.json'});
@@ -284,14 +284,14 @@ void main() {
     // Рядом с видео писать нельзя: здесь — папки уже нет (носитель
     // отключили), с защищённым носителем запись так же уходит в
     // запасную папку.
-    String caseVideo(String caseFolder) =>
-        '${tmp.path}/отключённый носитель/$caseFolder/VID_0001.mp4';
+    String videoIn(String folder) =>
+        '${tmp.path}/отключённый носитель/$folder/VID_0001.mp4';
 
-    test('Одноимённые видео разных дел не затирают сессии друг друга',
+    test('Одноимённые видео из разных папок не затирают сессии друг друга',
         () async {
       final store = SessionStore(fallbackDir: fallback.path);
-      final videoA = caseVideo('дело А');
-      final videoB = caseVideo('дело Б');
+      final videoA = videoIn('папка А');
+      final videoB = videoIn('папка Б');
 
       final savedA = await store.save(sessionFor(videoA));
       final savedB = await store.save(sessionFor(videoB, size: 200));
@@ -299,15 +299,15 @@ void main() {
       expect(savedB, startsWith(fallback.path));
 
       expect(await store.load(videoA, fpA), isNotNull,
-          reason: 'сессия дела А на месте — ролик не оплачивается заново');
+          reason: 'сессия из папки А на месте — ролик не оплачивается заново');
       expect(await store.load(videoB, fpB), isNotNull);
     });
 
     test('Резервные копии языков одноимённых видео тоже раздельные',
         () async {
       final store = SessionStore(fallbackDir: fallback.path);
-      final videoA = caseVideo('дело А');
-      final videoB = caseVideo('дело Б');
+      final videoA = videoIn('папка А');
+      final videoB = videoIn('папка Б');
 
       await store.saveBackup(sessionFor(videoA).copyWith(lang: 'uz-UZ'));
       await store.saveBackup(
@@ -320,7 +320,7 @@ void main() {
 
     test('Имя в запасной папке — имя видео и отпечаток полного пути', () {
       final store = SessionStore(fallbackDir: fallback.path);
-      final video = caseVideo('дело А');
+      final video = videoIn('папка А');
       final hash = stablePathHash(video);
       expect(store.fallbackPathFor(video),
           p.join(fallback.path, 'VID_0001.mp4.$hash.subtitler.json'));
@@ -336,7 +336,7 @@ void main() {
     group('Путь к тому же видео сменился', () {
       final yesterday = DateTime.now().subtract(const Duration(days: 1));
       String onDrive(String drive) =>
-          '${tmp.path}/носитель $drive/дело/VID_0001.mp4';
+          '${tmp.path}/носитель $drive/папка/VID_0001.mp4';
       Session withRu(Session s, String ru) =>
           s.copyWith(cues: [s.cues.single.copyWith(ru: ru)]);
 
@@ -345,21 +345,21 @@ void main() {
         final onE = onDrive('E');
         final onF = onDrive('F');
         expect(
-            await store.save(withRu(sessionFor(onE), 'правка следователя')),
+            await store.save(withRu(sessionFor(onE), 'правка пользователя')),
             store.fallbackPathFor(onE));
         await store.saveBackup(sessionFor(onE).copyWith(lang: 'uz-UZ'));
         expect(store.fallbackPathFor(onF), isNot(store.fallbackPathFor(onE)));
 
         final loaded = await store.load(onF, fpA);
         expect(loaded, isNotNull, reason: 'иначе ролик оплачивается заново');
-        expect(loaded!.cues.single.ru, 'правка следователя');
+        expect(loaded!.cues.single.ru, 'правка пользователя');
         expect(loaded.videoPath, onF,
             reason: 'дальше пишем уже по новому пути');
         expect((await store.loadBackup(onF, 'uz-UZ', fpA))?.lang, 'uz-UZ');
         expect(await store.backupLanguages(onF, fpA), {'uz-UZ'});
       });
 
-      test('одноимённое видео другого дела не подходит', () async {
+      test('одноимённое видео из другой папки не подходит', () async {
         final store = SessionStore(fallbackDir: fallback.path);
         await store.save(sessionFor(onDrive('E')));
         await store.saveBackup(sessionFor(onDrive('E')).copyWith(lang: 'uz-UZ'));
@@ -375,11 +375,11 @@ void main() {
         final onG = onDrive('G');
         await store.save(withRu(sessionFor(onE), 'старый текст'));
         File(store.fallbackPathFor(onE)).setLastModifiedSync(yesterday);
-        await store.save(withRu(sessionFor(onG), 'правка следователя'));
+        await store.save(withRu(sessionFor(onG), 'правка пользователя'));
 
         final onF = onDrive('F');
         final loaded = await store.load(onF, fpA);
-        expect(loaded!.cues.single.ru, 'правка следователя');
+        expect(loaded!.cues.single.ru, 'правка пользователя');
 
         // Правка по новому пути пишется под своим именем и дальше
         // читается она, а не прежние файлы.
@@ -393,22 +393,22 @@ void main() {
       // Замечание ревью к поиску по чужому хешу: файлы того же ролика,
       // открытого по другому пути, шли в общий выбор «самый свежий» — и
       // побеждали свою сессию рядом с видео, если были новее. Рабочая
-      // копия вещдока открывалась с текстом, поправленным в оригинале с
+      // копия видео открывалась с текстом, поправленным в оригинале с
       // флешки, а первая же правка затирала её собственный файл сессии:
-      // правки по делу пропадали без следа.
+      // правки пользователя пропадали без следа.
       test('своя сессия рядом с видео важнее более свежей по другому пути',
           () async {
         final store = SessionStore(fallbackDir: fallback.path);
-        // Рабочая копия вещдока на диске следователя: сессия с правками и
+        // Рабочая копия видео на диске пользователя: сессия с правками и
         // резервная копия второго языка лежат рядом с видео.
-        final work = '${tmp.path}/дело 1/VID_0001.mp4';
+        final work = '${tmp.path}/папка 1/VID_0001.mp4';
         Directory(p.dirname(work)).createSync(recursive: true);
         File(work).writeAsBytesSync(List.filled(100, 0));
         final ownFile =
-            await store.save(withRu(sessionFor(work), 'правка дела 1'));
+            await store.save(withRu(sessionFor(work), 'правка папки 1'));
         expect(ownFile, store.sessionPathFor(work));
         final ownBackup = await store.saveBackup(
-            withRu(sessionFor(work), 'узбекский вариант дела 1')
+            withRu(sessionFor(work), 'узбекский вариант папки 1')
                 .copyWith(lang: 'uz-UZ'));
         expect(ownBackup, store.backupPathFor(work, 'uz-UZ'));
         File(ownFile).setLastModifiedSync(yesterday);
@@ -424,14 +424,14 @@ void main() {
             .copyWith(lang: 'uz-UZ'));
 
         final loaded = await store.load(work, fpA);
-        expect(loaded!.cues.single.ru, 'правка дела 1',
+        expect(loaded!.cues.single.ru, 'правка папки 1',
             reason: 'иначе первая же правка затрёт правки рабочей копии');
         expect((await store.loadBackup(work, 'uz-UZ', fpA))!.cues.single.ru,
-            'узбекский вариант дела 1');
+            'узбекский вариант папки 1');
 
-        await store.save(withRu(loaded, 'правка дела 1, вторая'));
+        await store.save(withRu(loaded, 'правка папки 1, вторая'));
         expect(File(ownFile).readAsStringSync(),
-            allOf(contains('правка дела 1, вторая'),
+            allOf(contains('правка папки 1, вторая'),
                 isNot(contains('правка с носителя'))));
         // Флешка по-прежнему открывается со своим текстом.
         expect((await store.load(original, fpA))!.cues.single.ru,
@@ -498,7 +498,7 @@ void main() {
     test('Сессия и копия под прежним именем читаются, пишутся под новым',
         () async {
       final store = SessionStore(fallbackDir: fallback.path);
-      final video = caseVideo('дело А');
+      final video = videoIn('папка А');
       // Так их называла прежняя версия: только по имени видео.
       final legacy = p.join(fallback.path, 'VID_0001.mp4.subtitler.json');
       final legacyBackup =
@@ -527,14 +527,14 @@ void main() {
 
     Session edited(String video) => sessionFor(video).copyWith(cues: const [
           Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
-              ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+              ru: 'правка пользователя', status: CueStatus.ok, flags: {}),
         ]);
 
     test('Правки, ушедшие в запасную папку, не теряются при повторном '
         'открытии', () async {
       // Видео обработали, пока в папку можно было писать; потом папку
-      // дела записали на диск или защитили от записи и поправили реплику.
-      final folder = Directory('${tmp.path}/дело')..createSync();
+      // записали на диск или защитили от записи и поправили реплику.
+      final folder = Directory('${tmp.path}/папка')..createSync();
       final video = '${folder.path}/clip.mp4';
       File(video).writeAsBytesSync(List.filled(100, 0));
       final store = SessionStore(fallbackDir: fallback.path);
@@ -546,7 +546,7 @@ void main() {
       expect(saved, startsWith(fallback.path));
 
       final reopened = await store.load(video, fp);
-      expect(reopened!.cues.single.ru, 'правка следователя',
+      expect(reopened!.cues.single.ru, 'правка пользователя',
           reason: 'иначе в редакторе и в следующем видео — старый текст');
     });
 
@@ -562,7 +562,7 @@ void main() {
       await store.save(edited(video));
 
       expect((await store.load(video, fp))!.cues.single.ru,
-          'правка следователя');
+          'правка пользователя');
     });
 
     test('Резервная копия языка — тоже самая свежая', () async {
@@ -576,14 +576,14 @@ void main() {
           jsonEncode(edited(video).copyWith(lang: 'uz-UZ').toJson()));
 
       expect((await store.loadBackup(video, 'uz-UZ', fp))!.cues.single.ru,
-          'правка следователя');
+          'правка пользователя');
     });
   });
 
   group('Видео перенесли вместе с сессией', () {
     const fp = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
 
-    // Папку дела скопировали (или флешка получила другую букву диска):
+    // Папку с видео скопировали (или флешка получила другую букву диска):
     // видео и файлы сессии лежат по новому пути, внутри JSON — прежний.
     late String videoA;
     late String videoB;
@@ -604,13 +604,13 @@ void main() {
 
       final saved = await store.save(loaded.copyWith(cues: const [
         Cue(index: 1, range: TimeRange(0, 1.7), orig: 'abi',
-            ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+            ru: 'правка пользователя', status: CueStatus.ok, flags: {}),
       ]));
       expect(saved, '$videoB.subtitler.json');
       expect((await store.load(videoB, fp))!.cues.single.ru,
-          'правка следователя');
+          'правка пользователя');
       expect(File('$videoA.subtitler.json').readAsStringSync(), beforeA,
-          reason: 'прежняя копия вещдока не тронута');
+          reason: 'прежняя копия видео не тронута');
     });
 
     test('Резервная копия языка — тоже по новому пути', () async {
@@ -672,6 +672,98 @@ void main() {
       await store.save(sessionFor(video));
       expect(names(tmp), ['clip.mp4.subtitler.json']);
       expect(await store.load(video, fp), isNotNull);
+    });
+  });
+
+  // Готовое видео сохранено — файлы сессии больше не нужны: в них
+  // распознанный текст, и лежат они рядом с исходным видео.
+  group('Уборка после сохранения видео', () {
+    const fpA = SourceFingerprint(sizeBytes: 100, durationSec: 34.8);
+    const fpB = SourceFingerprint(sizeBytes: 200, durationSec: 34.8);
+
+    List<String> names(Directory dir) => dir.existsSync()
+        ? (dir.listSync().map((e) => p.basename(e.path)).toList()..sort())
+        : const [];
+
+    test('Сессия и резервные копии языков рядом с видео удаляются', () async {
+      final video = '${tmp.path}/clip.mp4';
+      File(video).writeAsBytesSync(List.filled(100, 0));
+      final store = SessionStore(fallbackDir: fallback.path);
+      await store.save(sessionFor(video));
+      await store.saveBackup(sessionFor(video).copyWith(lang: 'uz-UZ'));
+
+      final deleted = await store.deleteFor(video, fpA);
+
+      expect(deleted, unorderedEquals([
+        store.sessionPathFor(video),
+        store.backupPathFor(video, 'uz-UZ'),
+      ]));
+      expect(names(tmp), ['clip.mp4']);
+      expect(await store.load(video, fpA), isNull);
+      expect(await store.backupLanguages(video, fpA), isEmpty);
+    });
+
+    test('Сессия в запасной папке тоже удаляется', () async {
+      // Носитель отключён — как и защищённый, всё уходит в запасную папку.
+      final video = '${tmp.path}/отключённый носитель/папка/VID_0001.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      expect(await store.save(sessionFor(video)), startsWith(fallback.path));
+      await store.saveBackup(sessionFor(video).copyWith(lang: 'uz-UZ'));
+
+      await store.deleteFor(video, fpA);
+
+      expect(names(fallback), isEmpty);
+    });
+
+    test('Чужие сессии остаются', () async {
+      final store = SessionStore(fallbackDir: fallback.path);
+      // Одноимённое видео из другой папки — в запасной папке.
+      final other = '${tmp.path}/отключённый носитель/папка Б/VID_0001.mp4';
+      final otherFile = await store.save(sessionFor(other, size: 200));
+      // Та же запись, открытая с флешки: её сессия — в запасной папке под
+      // другим хешем. У рабочей копии на диске сессия своя, рядом с видео,
+      // и правки флешки ей не принадлежат (см. [SessionStore.load]).
+      final original = '${tmp.path}/носитель E/папка/VID_0001.mp4';
+      final originalFile = await store.save(sessionFor(original));
+      final work = '${tmp.path}/папка 1/VID_0001.mp4';
+      Directory(p.dirname(work)).createSync(recursive: true);
+      File(work).writeAsBytesSync(List.filled(100, 0));
+      await store.save(sessionFor(work));
+
+      await store.deleteFor(work, fpA);
+
+      expect(File(store.sessionPathFor(work)).existsSync(), isFalse);
+      expect(File(otherFile).existsSync(), isTrue,
+          reason: 'другое видео — другой отпечаток');
+      expect(File(originalFile).existsSync(), isTrue,
+          reason: 'сессия другой копии видео');
+      expect(await store.load(other, fpB), isNotNull);
+    });
+
+    test('Сессия, записанная по прежнему пути того же видео, удаляется',
+        () async {
+      // Флешку вставили под другой буквой: рядом с видео сессии нет, и
+      // открылась сессия, записанная под прежней буквой. Останься она —
+      // при следующем открытии видео нашлась бы снова.
+      final store = SessionStore(fallbackDir: fallback.path);
+      final onE = '${tmp.path}/носитель E/папка/VID_0001.mp4';
+      final onF = '${tmp.path}/носитель F/папка/VID_0001.mp4';
+      await store.save(sessionFor(onE));
+      expect(await store.load(onF, fpA), isNotNull);
+
+      await store.deleteFor(onF, fpA);
+
+      expect(names(fallback), isEmpty);
+      expect(await store.load(onF, fpA), isNull);
+    });
+
+    test('Нечитаемый файл не удаляется', () async {
+      final video = '${tmp.path}/clip.mp4';
+      final store = SessionStore(fallbackDir: fallback.path);
+      File('$video.subtitler.json').writeAsStringSync('{обрыв');
+
+      expect(await store.deleteFor(video, fpA), isEmpty);
+      expect(File('$video.subtitler.json').existsSync(), isTrue);
     });
   });
 

@@ -76,7 +76,7 @@ void main() {
     await pumpApp(tester, h.controller, size: _tall);
     h.controller.debugEmulate(
       stage: AppStage.processing,
-      videoPath: '/видео/дело 2/звонок.mp4',
+      videoPath: '/видео/папка 2/звонок.mp4',
       progress: const ProcessingProgress(ProcessingStep.recognizing,
           done: 1, total: 5),
     );

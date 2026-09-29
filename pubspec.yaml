@@ -1,5 +1,5 @@
 name: subtitler
-description: Русские субтитры для видео с турецкой и узбекской речью
+description: Русские субтитры для видео с иностранной речью
 publish_to: none
 version: 0.2.0
 
@@ -28,7 +28,7 @@ dependencies:
   # lib/ui/player/preview_player.dart.
   # Windows: media_kit. libmpv со своим ffmpeg и ANGLE лежат рядом с exe и не
   # зависят ни от Media Foundation, ни от кодеков ОС — поэтому работает и на
-  # N/LTSC-редакциях служебных ПК, где этих кодеков нет.
+  # N/LTSC-редакциях Windows, где этих кодеков нет.
   # Android и macOS: официальный video_player (ExoPlayer / AVFoundation) —
   # ни одной .so в APK не добавляет.
   # Нативные библиотеки media_kit подключаем ТОЛЬКО для Windows. Общий
@@ -68,6 +68,8 @@ flutter:
   uses-material-design: true
   assets:
     - assets/fonts/
+    # Руководство «Как пользоваться»: guide.md и снимки экрана к нему.
+    - assets/help/
   # Тот же файл, что libass получает при вшивании: субтитры в предпросмотре
   # рисуются им же, иначе переносы строк и ширина реплики разойдутся с
   # готовым видео. Одного `assets:` мало — шрифтом Flutter видит только

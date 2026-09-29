@@ -28,8 +28,8 @@ void main() {
 
   group('Имена', () {
     test('рядом с видео: _ru.mp4, _orig.srt, _ru.srt и временный .partial', () {
-      final names = outputNamesBeside(p.join('дело 5', 'запись.звонка.mp4'));
-      expect(names.dir, 'дело 5');
+      final names = outputNamesBeside(p.join('папка 5', 'запись.звонка.mp4'));
+      expect(names.dir, 'папка 5');
       expect(p.basename(names.video), 'запись.звонка_ru.mp4');
       expect(p.basename(names.partialVideo), 'запись.звонка_ru.partial.mp4');
       expect(p.basename(names.origSrt), 'запись.звонка_orig.srt');
@@ -37,15 +37,15 @@ void main() {
     });
 
     test('запасная папка своя у каждого видео, даже с одинаковыми именами', () {
-      final a = outputNamesInFallback(p.join('дело 1', 'VID_0001.mp4'), 'out');
-      final b = outputNamesInFallback(p.join('дело 2', 'VID_0001.mp4'), 'out');
+      final a = outputNamesInFallback(p.join('папка 1', 'VID_0001.mp4'), 'out');
+      final b = outputNamesInFallback(p.join('папка 2', 'VID_0001.mp4'), 'out');
       expect(a.dir, isNot(b.dir));
       expect(p.dirname(a.dir), 'out');
       expect(p.basename(a.video), 'VID_0001_ru.mp4',
           reason: 'имена файлов те же, что рядом с видео');
       // Имя папки не зависит от запуска: повторное сохранение попадает туда же.
       expect(
-          outputNamesInFallback(p.join('дело 1', 'VID_0001.mp4'), 'out').dir,
+          outputNamesInFallback(p.join('папка 1', 'VID_0001.mp4'), 'out').dir,
           a.dir);
     });
 
@@ -54,12 +54,12 @@ void main() {
       // после обновления Dart результат того же видео лёг бы в новую папку.
       expect(
           p.basename(
-              outputNamesInFallback('/дела/дело 12/VID_0001.mp4', 'out').dir),
-          'VID_0001_56ea54bf');
+              outputNamesInFallback('/папки/папка 12/VID_0001.mp4', 'out').dir),
+          'VID_0001_611fda4b');
       expect(
           p.basename(
-              outputNamesInFallback('/дела/дело 13/VID_0001.mp4', 'out').dir),
-          'VID_0001_08b08d3a');
+              outputNamesInFallback('/папки/папка 13/VID_0001.mp4', 'out').dir),
+          'VID_0001_9f9cc0c6');
     });
 
     test('стабильный хеш пути не меняется между версиями', () {
@@ -85,7 +85,7 @@ void main() {
     });
 
     test('рядом с видео нельзя — уходят в запасную папку', () async {
-      final folder = Directory(p.join(tmp.path, 'вещдок'))..createSync();
+      final folder = Directory(p.join(tmp.path, 'только-чтение'))..createSync();
       final video = p.join(folder.path, 'clip.mp4');
       File(video).writeAsStringSync('видео');
       final undo = makeUnwritable(folder.path, video);

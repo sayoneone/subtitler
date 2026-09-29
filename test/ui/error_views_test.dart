@@ -12,7 +12,7 @@ import 'package:subtitler/core/cloud/api_errors.dart';
 import '../support/app_harness.dart';
 import 'support.dart';
 
-const _video = '/видео/дело 9/звонок.mp4';
+const _video = '/видео/папка 9/звонок.mp4';
 
 void main() {
   testWidgets('нет сети: человеческий текст виден, сырой — только в '

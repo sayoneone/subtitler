@@ -131,20 +131,17 @@ enum SaveStatus {
   failed,
 }
 
-/// Что и куда сохранено.
+/// Куда сохранено готовое видео. Файлы .srt и сессии после сохранения
+/// удалены ([AppController.save]) — от сохранения остаётся только видео.
 class SaveResult {
   final String videoPath;
-  final String origSrtPath;
-  final String ruSrtPath;
 
-  /// Рядом с исходником писать нельзя — файлы (все или часть) лежат в
-  /// папке приложения. Интерфейс показывает плашку с путём (§9).
+  /// Рядом с исходником писать нельзя — видео лежит в папке приложения.
+  /// Интерфейс показывает плашку с путём (§9).
   final bool inFallback;
 
   const SaveResult({
     required this.videoPath,
-    required this.origSrtPath,
-    required this.ruSrtPath,
     required this.inFallback,
   });
 
@@ -221,7 +218,6 @@ const Duration kLongVideoThreshold = Duration(minutes: 15);
 class _VerifiedVideo {
   final String partial;
   final String target;
-  final SrtFiles srt;
   final bool inFallback;
 
   /// Сессия, из которой собрано видео. Любая правка создаёт новую.
@@ -232,7 +228,6 @@ class _VerifiedVideo {
   _VerifiedVideo({
     required this.partial,
     required this.target,
-    required this.srt,
     required this.inFallback,
     required this.session,
   })  : length = File(partial).lengthSync(),
@@ -373,7 +368,7 @@ class AppController extends ChangeNotifier {
       log.info('Программу запустили ещё раз — выводим окно вперёд');
       return;
     }
-    // Папка видео (название дела, фамилии) не должна попасть в журнал —
+    // Папка видео (имена, личные данные) не должна попасть в журнал —
     // прячем её до первой записи с этим путём, как в openVideo.
     log.hideFolderOf(video);
     log.info('Видео передано повторным запуском: $video');
@@ -476,6 +471,8 @@ class AppController extends ChangeNotifier {
   AppSettings get settings => _settings;
 
   SessionStore? _sessionStore;
+
+  bool _firstLaunchHelp = false;
 
   bool get isMobile => services.isMobile;
 
@@ -633,11 +630,12 @@ class AppController extends ChangeNotifier {
 
   SrtFiles? _srtFiles;
 
-  /// Субтитры пришлось записать в папку приложения: рядом с видео нельзя.
+  /// Субтитры (до сохранения) или готовое видео пришлось записать в папку
+  /// приложения: рядом с видео нельзя.
   bool get outputInFallback =>
       (_saveResult?.inFallback ?? false) || (_srtFiles?.inFallback ?? false);
 
-  /// Папка, где лежат субтитры (и видео после сохранения).
+  /// Папка, где лежат субтитры, а после сохранения — готовое видео.
   String? get outputDir => _saveResult?.dir ?? _srtFiles?.names.dir;
 
   // ---------------------------------------------------------------- правки
@@ -729,6 +727,7 @@ class AppController extends ChangeNotifier {
     _sessionStore = SessionStore(fallbackDir: runtime.supportDir, log: log);
     _settingsStore = services.settingsStore(runtime.supportDir, log);
     _settings = await _settingsStore!.load();
+    _firstLaunchHelp = !_settings.helpShown;
     log.info('Языки для автоопределения: '
         '${_settings.detectionCandidates.join(', ')}');
 
@@ -794,6 +793,21 @@ class AppController extends ChangeNotifier {
     }
     _notify();
     _openPendingVideo();
+  }
+
+  /// Первый запуск: руководство ещё ни разу не открывалось. Оболочка
+  /// спрашивает об этом при каждом изменении; `true` вернётся один раз —
+  /// когда программа готова к работе (не на подготовке и не на экране
+  /// поломки, где руководство не поможет), — и это запоминается в
+  /// настройках: при следующих запусках руководство открывают кнопкой.
+  bool takeFirstLaunchHelp() {
+    if (!_firstLaunchHelp) return false;
+    if (_stage == AppStage.starting || _stage == AppStage.broken) return false;
+    _firstLaunchHelp = false;
+    _settings = _settings.copyWith(helpShown: true);
+    unawaited(_settingsStore?.save(_settings));
+    log.info('Первый запуск — открываем руководство');
+    return true;
   }
 
   void _broken(UserError error) {
@@ -931,7 +945,7 @@ class AppController extends ChangeNotifier {
   /// [longVideoThreshold] — [longVideoQuestion] и ожидание
   /// [confirmLongVideo]. Завершается, когда обработка закончена.
   Future<void> openVideo(String path) async {
-    // Папка видео (название дела, фамилии) в журнал не попадает — ни в
+    // Папка видео (имена, личные данные) в журнал не попадает — ни в
     // одну запись, поэтому прячем её раньше первой записи с этим путём.
     log.hideFolderOf(path);
     if (!canOpenVideo) {
@@ -1231,8 +1245,8 @@ class AppController extends ChangeNotifier {
 
   /// Куда писать сессию, .srt и резервные копии: путь открытого видео, а
   /// не записанный в сессии. Видео могли перенести вместе с сессией
-  /// (скопировали папку дела, флешка получила другую букву) — тогда в
-  /// JSON прежний путь, и запись ушла бы в чужую копию вещдока.
+  /// (скопировали папку с видео, флешка получила другую букву) — тогда в
+  /// JSON прежний путь, и запись ушла бы в чужую копию видео.
   String _videoFor(Session session) => _videoPath ?? session.videoPath;
 
   /// Готовыми ([LanguageCopy.ready]) считаются только полные копии:
@@ -1583,6 +1597,11 @@ class AppController extends ChangeNotifier {
   /// кодируется во временный `<имя>_ru.partial.mp4`, проверяется, что
   /// субтитры в кадре видны, и только потом встаёт на место
   /// `<имя>_ru.mp4`. При провале проверки временный файл удаляется.
+  ///
+  /// Видео встало на место — оба .srt и файлы сессии (с резервными
+  /// копиями языков) удаляются ([_removeWorkFiles]): от работы остаётся
+  /// только готовое видео. Не удалось сохранить — всё остаётся, и
+  /// распознанное второй раз не оплачивается.
   Future<void> save() {
     if (isSaving) return _saveFuture ?? Future<void>.value();
     final future = _save();
@@ -1707,7 +1726,6 @@ class AppController extends ChangeNotifier {
       final done = _VerifiedVideo(
         partial: partial,
         target: names.video,
-        srt: srt,
         inFallback: inFallback,
         session: session,
       );
@@ -1726,12 +1744,41 @@ class AppController extends ChangeNotifier {
     } finally {
       if (partial != null) deleteQuietly(partial, log: log);
       // Перевод целиком для ffmpeg: после вшивания (удачного или нет) он
-      // не нужен, а лежит в папке с именем видео. Рядом с видео — свой
-      // <имя>_ru.srt, его не трогаем.
+      // не нужен, а лежит в папке с именем видео.
       deleteQuietly(burnSrt, log: log);
       _removeIfEmpty(workDir);
+      if (_saveStatus == SaveStatus.saved) await _removeWorkFiles(video);
       _notify();
     }
+  }
+
+  /// Видео сохранено: оба .srt и файлы сессии больше не нужны. В них
+  /// распознанный текст, а лежат они рядом с исходным видео (или в папке
+  /// программы).
+  /// Правка после этого запишет их заново — до следующего сохранения.
+  ///
+  /// Меню «Не тот язык?» перечитывает копии: удалённая копия больше не
+  /// «готово», и бесплатного переключения меню не обещает.
+  Future<void> _removeWorkFiles(String video) async {
+    final session = _session;
+    final srt = _srtFiles;
+    _srtFiles = null;
+    if (srt != null) {
+      deleteQuietly(srt.names.origSrt, log: log);
+      deleteQuietly(srt.names.ruSrt, log: log);
+      // Подпапка видео в запасной папке, если видео легло не туда.
+      if (srt.inFallback) _removeIfEmpty(srt.names.dir);
+    }
+    if (session == null) return;
+    try {
+      final deleted =
+          await _sessionStore!.deleteFor(video, session.fingerprint);
+      log.info('Видео сохранено — удалены .srt и файлы сессии '
+          '(${deleted.length})');
+    } catch (e) {
+      log.warn('Не удалось удалить файлы сессии: $e');
+    }
+    await _refreshBackups();
   }
 
   void _removeIfEmpty(String dir) {
@@ -1755,21 +1802,19 @@ class AppController extends ChangeNotifier {
     }
     _saveResult = SaveResult(
       videoPath: verified.target,
-      origSrtPath: verified.srt.names.origSrt,
-      ruSrtPath: verified.srt.names.ruSrt,
       inFallback: verified.inFallback,
     );
     _saveStatus = SaveStatus.saved;
     log.info('Готово: ${verified.target}');
   }
 
-  /// «Открыть папку» (десктоп) или «Поделиться» (Android: видео и оба .srt).
+  /// «Открыть папку» (десктоп) или «Поделиться» (Android: готовое видео;
+  /// .srt после сохранения удалены).
   Future<void> revealOutput() async {
     final result = _saveResult;
     if (result == null) return;
     if (services.isMobile) {
-      await services.share(
-          [result.videoPath, result.origSrtPath, result.ruSrtPath]);
+      await services.share([result.videoPath]);
     } else {
       await services.reveal(result.videoPath);
     }

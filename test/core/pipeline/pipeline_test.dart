@@ -456,10 +456,10 @@ void main() {
       final done = await build(FakeStt(['bir', 'iki', 'üç']), FakeTranslate())
           .process(videoPath: copy, lang: 'tr-TR', sleep: (_) async {});
 
-      // Следователь поправил перевод первой реплики.
+      // Пользователь поправил перевод первой реплики.
       final store = SessionStore(fallbackDir: tmp.path);
       final edited = done.copyWith(cues: [
-        done.cues.first.copyWith(ru: 'правка следователя'),
+        done.cues.first.copyWith(ru: 'правка пользователя'),
         ...done.cues.skip(1),
       ]);
       final path = await store.save(edited);
@@ -477,7 +477,7 @@ void main() {
 
       final onDisk = Session.fromJson(
           jsonDecode(File(path).readAsStringSync()) as Map<String, dynamic>);
-      expect(onDisk.cues.first.ru, 'правка следователя',
+      expect(onDisk.cues.first.ru, 'правка пользователя',
           reason: 'ручные правки не должны пропадать');
       expect(stt.calls, isEmpty, reason: 'за готовую сессию платить нельзя');
     });
@@ -800,7 +800,7 @@ void main() {
     );
   });
 
-  // Нарезка — это звук из материалов дела. Раньше она оставалась в
+  // Нарезка — это звук из личных записей. Раньше она оставалась в
   // LocalAppData навсегда, вопреки §11 «временные файлы удаляются».
   group('Нарезка удаляется, когда больше не нужна', () {
     test('всё распознано — ни нарезки, ни рабочей папки', () async {
@@ -841,7 +841,7 @@ void main() {
 
     // Пока язык не определён, сессия не пишется, а без сессии определение
     // языка режет ролик заново. Нарезку, оставшуюся после отмены или
-    // отказа сети, не использует никто — а это звук из материалов дела.
+    // отказа сети, не использует никто — а это звук из личных записей.
     group('язык нового видео не определён — нарезки нет', () {
       Future<String> detect(
         SpeechKitClient stt, {
@@ -945,9 +945,9 @@ void main() {
         resumeFrom: probe.session,
         sleep: (_) async {},
       );
-      // Следователь поправил перевод и решил, что язык всё-таки узбекский.
+      // Пользователь поправил перевод и решил, что язык всё-таки узбекский.
       final edited = turkish.copyWith(cues: [
-        turkish.cues.first.copyWith(ru: 'правка следователя'),
+        turkish.cues.first.copyWith(ru: 'правка пользователя'),
         ...turkish.cues.skip(1),
       ]);
       stt.calls.clear();
@@ -970,7 +970,7 @@ void main() {
 
       final store = SessionStore(fallbackDir: tmp.path);
       final backup = await store.loadBackup(copy, 'tr-TR', uzbek.fingerprint);
-      expect(backup!.cues.first.ru, 'правка следователя',
+      expect(backup!.cues.first.ru, 'правка пользователя',
           reason: 'турецкий вариант с правками можно вернуть бесплатно');
       expect((await store.load(copy, uzbek.fingerprint))!.lang, 'uz-UZ');
 
@@ -984,7 +984,7 @@ void main() {
       );
       expect(stt.calls, isEmpty);
       expect(back.lang, 'tr-TR');
-      expect(back.cues.first.ru, 'правка следователя');
+      expect(back.cues.first.ru, 'правка пользователя');
       expect(back.langRunnerUp, 'uz-UZ');
       expect(await store.backupLanguages(copy, back.fingerprint),
           {'tr-TR', 'uz-UZ'});

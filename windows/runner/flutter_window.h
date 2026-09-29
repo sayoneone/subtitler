@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "help_window.h"
 #include "win32_window.h"
 
 // A window that does nothing but host a Flutter view.
@@ -19,6 +20,10 @@ class FlutterWindow : public Win32Window {
   // copy (see main.cpp): its command line arguments, each UTF-8 string
   // followed by '\0'.
   static constexpr ULONG_PTR kArgumentsMessage = 0x53554254;  // "SUBT"
+
+  // Posted to itself when Dart has finished up before exit (WM_CLOSE with
+  // the guide open): the window may be destroyed.
+  static constexpr UINT kExitConfirmedMessage = WM_APP + 1;
 
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   // |instance_marker| names the window property by which a repeated launch
@@ -40,6 +45,11 @@ class FlutterWindow : public Win32Window {
   void ReceiveArguments(const COPYDATASTRUCT& data);
   void SendArguments(const std::vector<std::string>& arguments);
 
+  // Opens the "How to use" window titled |title| ("ru.subtitler/help"), or
+  // brings it to the front if it is already open. Returns whether it is on
+  // the screen.
+  bool OpenHelp(const std::wstring& title);
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -52,6 +62,12 @@ class FlutterWindow : public Win32Window {
       instance_channel_;
   bool dart_ready_ = false;
   std::vector<std::vector<std::string>> pending_arguments_;
+
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
+      help_channel_;
+  std::unique_ptr<HelpWindow> help_window_;
+  // Dart has been asked to finish up before exit (see WM_CLOSE).
+  bool exit_requested_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

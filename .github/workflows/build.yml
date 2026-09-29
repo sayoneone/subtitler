@@ -97,7 +97,7 @@ jobs:
           }
 
           # Библиотеки времени выполнения MSVC кладём рядом с exe: на
-          # служебных ПК без прав администратора нет ни установщика
+          # рабочих компьютерах без прав администратора нет ни установщика
           # Visual C++, ни возможности его поставить.
           # Папку ищем по самому файлу: структура каталогов Redist меняется
           # от версии к версии, и угадывать её именем — ненадёжно.
@@ -115,7 +115,7 @@ jobs:
           }
 
           # Проверка: приложение не должно зависеть от того, что стоит
-          # на машине следователя.
+          # на машине пользователя.
           # ffmpeg_kit_flutter_new_plugin.dll в списке не по ошибке: его
           # импортирует сам exe, и без него приложение молча не запускается.
           # То же с плеером предпросмотра: exe импортирует плагины media_kit,
@@ -149,7 +149,7 @@ jobs:
           Write-Host "Размер распакованной папки: $mb МБ"
           # Размер — тоже проверка. Если лишняя сборка ffmpeg вернётся в архив,
           # папка вырастет на 117 МБ, и узнать об этом надо здесь, а не из
-          # жалоб на скачивание по служебной сети.
+          # жалоб на медленное скачивание.
           # Из чего складываются 200 МБ: ffmpeg.exe ~98, плеер media_kit (libmpv,
           # ANGLE) ~46, Flutter, плагины и библиотеки MSVC ~34 — по замеру
           # 2026-09-25 папка весит 178,5 МБ, остальное запас на рост
@@ -160,11 +160,11 @@ jobs:
           Compress-Archive -Path dist/* -DestinationPath subtitler-windows-x64.zip
 
       # Каждая DLL, которую импортируют exe и DLL из папки, должна лежать
-      # рядом с ними или входить в саму Windows, иначе на ПК следователя
+      # рядом с ними или входить в саму Windows, иначе на ПК пользователя
       # программа не запустится. Список обязательных файлов выше этого не
       # ловит: он знает только названные файлы. Запуск exe здесь тоже не
       # поймал бы: на раннере стоят Visual C++ и отладочный CRT, которых у
-      # следователя нет. Импорты читает dumpbin из Visual Studio раннера.
+      # пользователя нет. Импорты читает dumpbin из Visual Studio раннера.
       - name: Проверить импорты DLL
         shell: pwsh
         run: |
@@ -191,7 +191,7 @@ jobs:
             # - dartjni.dll собирает пакет jni (его тянет path_provider_android),
             #   и только там, где стоит Java: на раннере она есть, на машине
             #   разработчика — не всегда. Импортирует jvm.dll, которой у
-            #   следователя нет. Вызывается лишь из кода для Android; на Windows
+            #   пользователя нет. Вызывается лишь из кода для Android; на Windows
             #   пути даёт path_provider_windows. С ней вышли 0.1.0 и 0.1.1 и на
             #   ПК без Java запускались.
             $unused = @('zlib.dll', 'dartjni.dll')
@@ -216,7 +216,7 @@ jobs:
               foreach ($dep in $deps[$pe.FullName]) {
                 # Рядом с тем, кто её импортирует: там её найдёт загрузчик Windows.
                 if (Test-Path (Join-Path $pe.DirectoryName $dep)) { continue }
-                # В System32 раннера есть то, чего у следователя нет: библиотеки
+                # В System32 раннера есть то, чего у пользователя нет: библиотеки
                 # Visual C++ (msvcp140_1, concrt140…) и отладочный CRT, а в N- и
                 # LTSC-редакциях нет Media Foundation. Такие DLL должны лежать в папке.
                 $name = $dep.ToLower()
@@ -230,13 +230,208 @@ jobs:
             }
             Write-Host "Проверено файлов: $($pes.Count)"
             if ($missing.Count) {
-              throw "Не хватает DLL — на ПК следователя программа не запустится: $(($missing | Sort-Object -Unique) -join '; ')"
+              throw "Не хватает DLL — на ПК пользователя программа не запустится: $(($missing | Sort-Object -Unique) -join '; ')"
             }
             Write-Host "Все импортируемые DLL лежат в папке или входят в Windows"
           } catch {
             Write-Host "::error title=Проверить импорты DLL::$($_.Exception.Message)"
             exit 1
           }
+
+      # Первый запуск у пользователя: ключа и настроек ещё нет. Программа
+      # должна показать экран ввода ключа и открыть руководство отдельным
+      # окном (windows/runner/help_window.cpp). На раннере ключа и настроек
+      # тоже нет — запускаем собранный exe из папки архива и смотрим на окна.
+      # Снимки окон — в артефакте first-launch: так их видно и без Windows.
+      - name: Первый запуск — экран ключа и окно руководства
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path first-launch | Out-Null
+          $app = $null
+          try {
+            Add-Type -AssemblyName System.Drawing
+            Add-Type -TypeDefinition @'
+          using System;
+          using System.Collections.Generic;
+          using System.Runtime.InteropServices;
+          using System.Text;
+
+          public static class TopWindows {
+            delegate bool EnumProc(IntPtr hwnd, IntPtr lparam);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc proc, IntPtr lparam);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint pid);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hwnd);
+            [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+            static extern int GetWindowText(IntPtr hwnd, StringBuilder text, int max);
+            [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr hwnd, IntPtr hdc, uint flags);
+            [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr w, IntPtr l);
+            [StructLayout(LayoutKind.Sequential)] public struct Rect { public int Left, Top, Right, Bottom; }
+
+            // Видимые окна процесса с заголовком.
+            public static IntPtr[] Of(uint pid) {
+              var found = new List<IntPtr>();
+              EnumWindows((hwnd, unused) => {
+                uint owner;
+                GetWindowThreadProcessId(hwnd, out owner);
+                if (owner == pid && IsWindowVisible(hwnd) && Title(hwnd).Length > 0) found.Add(hwnd);
+                return true;
+              }, IntPtr.Zero);
+              return found.ToArray();
+            }
+
+            public static string Title(IntPtr hwnd) {
+              var text = new StringBuilder(512);
+              GetWindowText(hwnd, text, text.Capacity);
+              return text.ToString();
+            }
+          }
+          '@
+
+            $app = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
+            $windows = @()
+            for ($i = 0; $i -lt 60 -and $windows.Count -lt 2; $i++) {
+              Start-Sleep -Milliseconds 500
+              if ($app.HasExited) { throw "subtitler.exe завершился при запуске с кодом $($app.ExitCode)" }
+              $windows = @([TopWindows]::Of([uint32]$app.Id))
+            }
+            # Первый кадр в обоих окнах и загрузка руководства.
+            Start-Sleep -Seconds 4
+            if ($app.HasExited) { throw "subtitler.exe закрылся сам с кодом $($app.ExitCode)" }
+            $windows = @([TopWindows]::Of([uint32]$app.Id))
+            $titles = @($windows | ForEach-Object { [TopWindows]::Title($_) })
+            Write-Host "Окна программы: $($titles -join ' | ')"
+
+            # Снимок каждого окна отдельно (экран раннера — 1024x768, окна
+            # перекрывают друг друга) и всего экрана.
+            $n = 0
+            foreach ($hwnd in $windows) {
+              $r = New-Object TopWindows+Rect
+              [TopWindows]::GetWindowRect($hwnd, [ref]$r) | Out-Null
+              $bmp = New-Object System.Drawing.Bitmap ($r.Right - $r.Left), ($r.Bottom - $r.Top)
+              $g = [System.Drawing.Graphics]::FromImage($bmp)
+              $hdc = $g.GetHdc()
+              # PW_RENDERFULLCONTENT: и то, что рисует DirectX (Flutter через ANGLE).
+              [TopWindows]::PrintWindow($hwnd, $hdc, 2) | Out-Null
+              $g.ReleaseHdc($hdc)
+              $n++
+              $bmp.Save((Join-Path first-launch "window-$n.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+              $g.Dispose(); $bmp.Dispose()
+            }
+            Add-Type -AssemblyName System.Windows.Forms
+            $bounds = [System.Windows.Forms.Screen]::PrimaryScreen.Bounds
+            $screen = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
+            $g = [System.Drawing.Graphics]::FromImage($screen)
+            $g.CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
+            $screen.Save((Join-Path first-launch 'screen.png'), [System.Drawing.Imaging.ImageFormat]::Png)
+
+            if ($titles -notcontains 'Subtitler') { throw "Нет главного окна Subtitler: $($titles -join ', ')" }
+            if ($titles -notcontains 'Subtitler — как пользоваться') {
+              throw "Руководство не открылось отдельным окном: $($titles -join ', ')"
+            }
+
+            # Какой экран в главном окне, видно по журналу программы.
+            $log = Get-ChildItem $env:LOCALAPPDATA -Recurse -Filter subtitler.log -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if (-not $log) { throw "Журнал программы не найден в LOCALAPPDATA" }
+            $text = Get-Content $log.FullName -Raw -Encoding utf8
+            Copy-Item $log.FullName first-launch/subtitler.log
+            foreach ($line in @('Ключ ещё не сохранён', 'Первый запуск — открываем руководство')) {
+              if (-not $text.Contains($line)) { throw "В журнале нет строки «$line»" }
+            }
+            Write-Host "Экран ключа показан, руководство открыто отдельным окном"
+
+            # Закрытие. Программа должна выйти штатно, с кодом 0, через
+            # AppShell._onExitRequested, который дописывает правки и журнал:
+            # последняя строка «Окно закрыто». Flutter спрашивает Dart о
+            # выходе, только когда закрывается последнее окно процесса; при
+            # открытом руководстве это делает запускалка
+            # (windows/runner/flutter_window.cpp, WM_CLOSE). Три случая:
+            # руководство закрыли крестиком, а потом главное окно; главное
+            # окно закрыли при открытом руководстве (так программа падала:
+            # help_window.cpp, ~HelpWindow); руководства не было вовсе.
+            $failures = New-Object System.Collections.Generic.List[string]
+            function Close-Window($app, $title) {
+              $hwnd = @([TopWindows]::Of([uint32]$app.Id)) |
+                      Where-Object { [TopWindows]::Title($_) -eq $title } | Select-Object -First 1
+              [TopWindows]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            }
+            function Test-Close($app, $label, $logCopy) {
+              Close-Window $app 'Subtitler'
+              if (-not $app.WaitForExit(20000)) {
+                $failures.Add("$($label): программа не закрылась за 20 с после закрытия главного окна")
+                Stop-Process -Id $app.Id -Force
+                return
+              }
+              $text = Get-Content $log.FullName -Raw -Encoding utf8
+              Copy-Item $log.FullName (Join-Path first-launch $logCopy) -Force
+              if ($app.ExitCode -ne 0) {
+                $failures.Add("$($label): программа упала, код выхода $('0x{0:X8}' -f $app.ExitCode)")
+              } elseif (-not $text.Contains('Окно закрыто')) {
+                $failures.Add("$($label): программа закрылась мимо штатного выхода, в журнале нет «Окно закрыто»")
+              } else {
+                Write-Host "$($label): штатный выход"
+              }
+            }
+            function Start-App($windowsWanted) {
+              $started = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
+              $found = @()
+              for ($i = 0; $i -lt 60 -and $found.Count -lt $windowsWanted; $i++) {
+                Start-Sleep -Milliseconds 500
+                $found = @([TopWindows]::Of([uint32]$started.Id))
+              }
+              Start-Sleep -Seconds 4
+              return $started
+            }
+
+            Close-Window $app 'Subtitler — как пользоваться'
+            Start-Sleep -Seconds 3
+            if ($app.HasExited) {
+              $failures.Add("Закрытие руководства уронило программу, код выхода $('0x{0:X8}' -f $app.ExitCode)")
+            } else {
+              Test-Close $app 'Руководство закрыли, потом главное окно' 'subtitler-1.log'
+            }
+
+            # Снова первый запуск: без настроек руководство откроется само.
+            Remove-Item (Join-Path $env:APPDATA 'ru.subtitler\subtitler\settings.json') -ErrorAction SilentlyContinue
+            $app = Start-App 2
+            Test-Close $app 'Главное окно закрыли при открытом руководстве' 'subtitler-2.log'
+
+            $app = Start-App 1
+            $titles = @([TopWindows]::Of([uint32]$app.Id) | ForEach-Object { [TopWindows]::Title($_) })
+            if ($titles.Count -ne 1) { $failures.Add("Второй запуск: руководство снова открылось само: $($titles -join ', ')") }
+            Test-Close $app 'Без руководства' 'subtitler-3.log'
+
+            if ($failures.Count) { throw ($failures -join '; ') }
+          } catch {
+            Write-Host "::error title=Первый запуск::$($_.Exception.Message)"
+            exit 1
+          } finally {
+            if ($app -and -not $app.HasExited) { Stop-Process -Id $app.Id -Force }
+          }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: first-launch
+          path: first-launch
+          retention-days: 14
+
+      # Снимки экранов программы для руководства (assets/help/app-*.png):
+      # на Windows, со шрифтами Windows. Только при ручном запуске сборки —
+      # интеграционный тест собирает ещё одно приложение, это минуты.
+      - name: Снимки экранов для руководства
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          SUBTITLER_SCREENSHOTS: ${{ github.workspace }}\help-screenshots
+        run: flutter test integration_test/help_screenshots_test.dart -d windows
+
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch'
+        with:
+          name: help-screenshots
+          path: help-screenshots
+          retention-days: 14
 
       - uses: actions/upload-artifact@v4
         with:
@@ -279,7 +474,7 @@ jobs:
           flutter test
 
       # Подписывается отладочным ключом: раздаём APK напрямую, магазинов нет.
-      # Перед раздачей следователям сюда надо подставить свой keystore.
+      # Перед раздачей пользователям сюда надо подставить свой keystore.
       - name: Сборка APK
         run: flutter build apk --release
 
@@ -323,7 +518,7 @@ jobs:
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
 
-  # Постоянная ссылка, которую можно отправить следователю. Артефакты сборки
+  # Постоянная ссылка, которую можно отправить пользователю. Артефакты сборки
   # для этого не годятся: GitHub отдаёт их только вошедшим в аккаунт, и живут
   # они две недели. Релиз по тегу v* скачивается без аккаунта и не исчезает.
   #
@@ -368,7 +563,9 @@ jobs:
              нажмите «Подробнее», затем «Выполнить в любом случае». Программа не
              подписана сертификатом, поэтому Windows предупреждает о ней при
              первом запуске.
-          5. Введите свой API-ключ Яндекс Облака. Он хранится только на этом
+          5. При первом запуске откроется руководство «Как пользоваться» — в нём
+             по шагам и с картинками, как создать ключ Яндекс Облака. Введите
+             ключ в главном окне программы. Он хранится только на этом
              компьютере.
           EOF
 

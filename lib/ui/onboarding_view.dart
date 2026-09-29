@@ -8,9 +8,10 @@ import '../app/user_error.dart';
 import 'error_panel.dart';
 import 'strings.dart';
 
-/// Этап [AppStage.needsKey] (§4 спецификации): какой ключ нужен и с какими
-/// ролями, поле с маскировкой, «Проверить и сохранить» и по индикатору на
-/// каждую роль — перевод и распознавание.
+/// Этап [AppStage.needsKey] (§4 спецификации): какой ключ нужен и как его
+/// создать (коротко, а подробно — в руководстве), поле с маскировкой,
+/// «Проверить и сохранить» и по индикатору на каждую роль — перевод и
+/// распознавание.
 ///
 /// Значение ключа нигде не показывается. После того как ключ принят, поле
 /// очищается: в памяти экрана ключ не задерживается. Отвергнутый ключ
@@ -18,7 +19,11 @@ import 'strings.dart';
 /// контроллер его не запоминает.
 class OnboardingView extends StatefulWidget {
   final AppController controller;
-  const OnboardingView({super.key, required this.controller});
+
+  /// «Подробно, с картинками»: открыть руководство.
+  final VoidCallback? onOpenHelp;
+
+  const OnboardingView({super.key, required this.controller, this.onOpenHelp});
 
   @override
   State<OnboardingView> createState() => _OnboardingViewState();
@@ -86,16 +91,11 @@ class _OnboardingViewState extends State<OnboardingView> {
               const SizedBox(height: 12),
               const Text(AppStrings.keyIntro),
               const SizedBox(height: 8),
-              const _Role(
-                  AppStrings.keyRoleStt, AppStrings.keyRoleSttWhat),
-              const _Role(AppStrings.keyRoleTranslate,
-                  AppStrings.keyRoleTranslateWhat),
-              const SizedBox(height: 8),
               Text(AppStrings.keyPrivacy,
                   style: theme.textTheme.bodySmall
                       ?.copyWith(color: theme.colorScheme.outline)),
               const SizedBox(height: 8),
-              const _HowTo(),
+              _HowTo(onOpenHelp: widget.onOpenHelp),
               const SizedBox(height: 16),
               if (c.keyStorageWorks == false) ...[
                 const _Warning(AppStrings.keyStorageBroken),
@@ -163,23 +163,13 @@ class _OnboardingViewState extends State<OnboardingView> {
   }
 }
 
-class _Role extends StatelessWidget {
-  final String role;
-  final String what;
-  const _Role(this.role, this.what);
-
-  @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.only(left: 8, top: 2),
-        child: Text('•  $role — $what'),
-      );
-}
-
 class _HowTo extends StatelessWidget {
-  const _HowTo();
+  final VoidCallback? onOpenHelp;
+  const _HowTo({this.onOpenHelp});
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return ExpansionTile(
       tilePadding: EdgeInsets.zero,
       childrenPadding: const EdgeInsets.only(bottom: 8),
@@ -191,6 +181,17 @@ class _HowTo extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 6),
             child: SelectableText('${i + 1}. $step'),
           ),
+        if (onOpenHelp != null)
+          TextButton.icon(
+            key: const ValueKey('key-guide'),
+            onPressed: onOpenHelp,
+            icon: const Icon(Icons.help_outline),
+            label: const Text(AppStrings.keyHowToGuide),
+          ),
+        const SizedBox(height: 4),
+        Text(AppStrings.keyRoles,
+            style: theme.textTheme.bodySmall
+                ?.copyWith(color: theme.colorScheme.outline)),
       ],
     );
   }

@@ -54,7 +54,7 @@ void main() {
     final logs = Platform.isAndroid ? roaming : local;
     expect(log.filePath, p.join(logs, 'subtitler.log'));
     expect(runtime.logDir, logs);
-    expect(runtime.workDirFor(p.join('дело', 'clip.mp4')),
+    expect(runtime.workDirFor(p.join('папка', 'clip.mp4')),
         startsWith(runtime.workDir));
 
     // Прежняя рабочая папка в Roaming убирается в фоне.
@@ -87,7 +87,7 @@ void main() {
         File(p.join(roaming, name))..writeAsStringSync(text);
 
     const oldJournal = 'INFO  [tr-TR] реплика 1: выдуманная тестовая фраза\n'
-        r'INFO  Обработка: D:\Дела\Дело 0 (тест)\clip.mp4, язык tr-TR'
+        r'INFO  Обработка: D:\Записи\Папка 0 (тест)\clip.mp4, язык tr-TR'
         '\n';
     final journals = [
       inRoaming('subtitler.log', oldJournal),
@@ -175,7 +175,7 @@ void main() {
 
   // Нарезку и SRT для вшивания программа убирает сама, но у недоделанных
   // сессий (отмена, нет сети, программу закрыли) рабочая папка остаётся.
-  // Раньше такие папки со звуком из материалов дела лежали вечно.
+  // Раньше такие папки со звуком из записей лежали вечно.
   test('При запуске удаляются рабочие папки, не тронутые дольше недели',
       () async {
     final tmp = Directory.systemTemp.createTempSync('runtime_test_');
@@ -277,15 +277,17 @@ void main() {
     // Dart: String.hashCode этого не обещает, и тогда уже нарезанное
     // пришлось бы резать заново.
     test('строится стабильным хешем пути (FNV-1a), а не String.hashCode', () {
-      expect(p.basename(runtime.workDirFor('/дела/дело 12/VID_0001.mp4')),
-          'VID_0001_56ea54bf');
-      expect(p.basename(runtime.workDirFor('/дела/дело 12/запись звонка.mp4')),
-          'запись_звонка_b57381cf');
+      expect(p.basename(runtime.workDirFor('/папки/папка 12/VID_0001.mp4')),
+          'VID_0001_611fda4b');
+      expect(
+          p.basename(
+              runtime.workDirFor('/папки/папка 12/запись звонка.mp4')),
+          'запись_звонка_718f823b');
     });
 
-    test('одинаковые имена из разных дел — разные папки', () {
-      expect(p.basename(runtime.workDirFor('/дела/дело 13/VID_0001.mp4')),
-          'VID_0001_08b08d3a');
+    test('одноимённые видео из разных папок — разные рабочие папки', () {
+      expect(p.basename(runtime.workDirFor('/папки/папка 13/VID_0001.mp4')),
+          'VID_0001_9f9cc0c6');
     });
   });
 }

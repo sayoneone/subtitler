@@ -15,7 +15,8 @@ void main() {
   UserError describe(Object e, {bool windows = true}) =>
       describeError(e, mask: (t) => t, windows: windows);
 
-  FileSystemException fsError(int code, {String path = r'C:\дело\clip_ru.mp4'}) =>
+  FileSystemException fsError(int code,
+          {String path = r'C:\папка\clip_ru.mp4'}) =>
       FileSystemException('ошибка', path, OSError('системный текст', code));
 
   test('401 — ключ неверный, кнопка «Изменить ключ»', () {
@@ -88,7 +89,7 @@ void main() {
   });
 
   test('Занятый выходной файл — имя файла и «закройте его и повторите»', () {
-    final error = describe(const FileBusyException(r'C:\дело\clip_ru.mp4'));
+    final error = describe(const FileBusyException(r'C:\папка\clip_ru.mp4'));
     expect(error.title,
         'Файл clip_ru.mp4 открыт в другой программе, закройте его и повторите');
     expect(error.action, UserErrorAction.retry);
@@ -97,7 +98,7 @@ void main() {
     // сообщение, а не той, где идут тесты: CI гоняет их и на Linux. Там
     // обратная косая черта — обычный символ имени файла.
     expect(
-        describe(const FileBusyException(r'/дело/клип\2_ru.mp4'),
+        describe(const FileBusyException(r'/папка/клип\2_ru.mp4'),
                 windows: false)
             .title,
         r'Файл клип\2_ru.mp4 открыт в другой программе, закройте его и '

@@ -2725,7 +2725,7 @@ import 'package:path/path.dart' as p;
 import 'models.dart';
 
 /// Читает и пишет `<имя>.subtitler.json`. Если папка с исходником недоступна
-/// для записи (вещдок на защищённом носителе), файл уходит в [fallbackDir].
+/// для записи (видео на защищённом носителе), файл уходит в [fallbackDir].
 class SessionStore {
   final String fallbackDir;
   SessionStore({required this.fallbackDir});
@@ -3737,7 +3737,7 @@ Expected: все тесты проходят, ни одного пропущен
 см. `.gitignore`) и прогнать каждый:
 
 ```bash
-export YC_API_KEY='<ключ следователя>'
+export YC_API_KEY='<ключ пользователя>'
 dart run tool/pipeline_cli.dart "test/acceptance/samples/<ролик>.mp4" --lang tr-TR
 ```
 
@@ -3764,7 +3764,7 @@ dart run tool/pipeline_cli.dart "test/acceptance/samples/<ролик>.mp4" --lan
 # Приёмочные прогоны
 
 Здесь лежат реальные ролики для сквозной проверки ядра. Сами видеофайлы
-в репозиторий не коммитятся (следственные материалы) — их кладёт разработчик
+в репозиторий не коммитятся (личные записи) — их кладёт разработчик
 локально в `samples/`.
 
 Запуск: `YC_API_KEY=... dart run tool/pipeline_cli.dart samples/<файл>.mp4 --lang tr-TR`

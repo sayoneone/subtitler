@@ -19,8 +19,8 @@ import '../../support/media.dart';
 import '../support.dart';
 import 'review_test_support.dart';
 
-const _video = '/видео/дело 1/clip.mp4';
-const _burned = '/видео/дело 1/clip_ru.mp4';
+const _video = '/видео/папка 1/clip.mp4';
+const _burned = '/видео/папка 1/clip_ru.mp4';
 
 /// Выдуманная турецкая речь на репликах пробного ролика, узбекская модель
 /// пишет кальку: язык выбирается уверенно (как в app_controller_test).
@@ -38,12 +38,7 @@ const _turkishSpeech = {
 };
 
 SaveResult _saved({String video = _burned, bool inFallback = false}) =>
-    SaveResult(
-      videoPath: video,
-      origSrtPath: video.replaceFirst('_ru.mp4', '_orig.srt'),
-      ruSrtPath: video.replaceFirst('.mp4', '.srt'),
-      inFallback: inFallback,
-    );
+    SaveResult(videoPath: video, inFallback: inFallback);
 
 /// Сессия, в которой ни у одной реплики нет перевода: сохранять нечего, и
 /// контроллер отказывает сразу — без ffmpeg и без диска.
@@ -137,12 +132,12 @@ void main() {
     ) async {
       final rig = await pumpReview(tester);
 
-      rig.controller.debugEmulate(videoPath: '/видео/дело 2/другое.mp4');
+      rig.controller.debugEmulate(videoPath: '/видео/папка 2/другое.mp4');
       await tester.pump();
 
       expect(rig.players, hasLength(2));
       expect(rig.players.first.disposed, isTrue);
-      expect(rig.players.last.opened, ['/видео/дело 2/другое.mp4']);
+      expect(rig.players.last.opened, ['/видео/папка 2/другое.mp4']);
       expect(rig.players.last.disposed, isFalse);
       await finishReview(tester, rig);
     });
@@ -533,7 +528,7 @@ void main() {
     // Замечание ревью P5: после «Отмены» платной смены языка распознанное
     // на новом языке сохраняется, и сообщение зовёт вернуться к нему через
     // «Не тот язык?». А в меню у этого языка было написано «распознать
-    // заново — оплачивается»: следователь решал, что оплаченное пропало.
+    // заново — оплачивается»: человек решал, что оплаченное пропало.
     testWidgets('после отмены платной смены языка язык в меню подписан '
         '«начато»', (tester) async {
       await tester.binding.setSurfaceSize(kWideWindow);
@@ -688,7 +683,7 @@ void main() {
       await finishReview(tester, rig);
     });
 
-    testWidgets('Android: «Поделиться» отдаёт видео и оба .srt', (
+    testWidgets('Android: «Поделиться» отдаёт готовое видео', (
       tester,
     ) async {
       final rig = await pumpReview(tester, isMobile: true);
@@ -702,7 +697,7 @@ void main() {
       await tester.tap(find.text('Поделиться'));
       await tester.pump();
       expect(rig.h.shared, [
-        [_burned, '/видео/дело 1/clip_orig.srt', '/видео/дело 1/clip_ru.srt'],
+        [_burned],
       ]);
       await finishReview(tester, rig);
     });
@@ -939,13 +934,11 @@ void main() {
       await finishReview(tester, rig);
     });
 
-    // Когда ffmpeg не пускают писать рядом с исходником (контролируемый
-    // доступ к папкам), в папку программы уходит только видео: .srt к
-    // этому времени уже записаны рядом с исходником. Раньше плашка и тогда
-    // говорила «файлы сохранены в папку программы» — следователь открыл
-    // бы её и не нашёл там субтитров.
-    testWidgets('плашка о папке программы говорит, где видео, а где '
-        'субтитры', (tester) async {
+    // После сохранения .srt и сессия удалены — в папке программы только
+    // готовое видео, и плашка говорит о нём, а не о «файлах»: человек
+    // открыл бы папку и не нашёл там субтитров.
+    testWidgets('плашка о папке программы после сохранения говорит о '
+        'готовом видео', (tester) async {
       Finder plateText(String text) => find.descendant(
             of: find.byKey(const ValueKey('review-fallback')),
             matching: find.text(text),
@@ -953,13 +946,10 @@ void main() {
       final rig = await pumpReview(tester);
       final c = rig.controller;
 
-      // Только видео в папке программы, .srt — рядом с исходником.
       c.debugEmulate(
         saveStatus: SaveStatus.saved,
         saveResult: const SaveResult(
           videoPath: '/программа/output/clip/clip_ru.mp4',
-          origSrtPath: '/видео/дело 1/clip_orig.srt',
-          ruSrtPath: '/видео/дело 1/clip_ru.srt',
           inFallback: true,
         ),
       );
@@ -967,26 +957,7 @@ void main() {
       expect(
         plateText(
           'Готовое видео записать рядом с исходным нельзя — оно сохранено '
-          'в папку программы: /программа/output/clip. Файлы .srt с '
-          'субтитрами лежат рядом с исходным видео.',
-        ),
-        findsOneWidget,
-      );
-
-      // Всё в папке программы: и видео, и .srt.
-      c.debugEmulate(
-        saveResult: const SaveResult(
-          videoPath: '/программа/output/clip/clip_ru.mp4',
-          origSrtPath: '/программа/output/clip/clip_orig.srt',
-          ruSrtPath: '/программа/output/clip/clip_ru.srt',
-          inFallback: true,
-        ),
-      );
-      await tester.pump();
-      expect(
-        plateText(
-          'Рядом с видео записать нельзя — файлы сохранены в папку '
-          'программы: /программа/output/clip',
+          'в папку программы: /программа/output/clip',
         ),
         findsOneWidget,
       );

@@ -427,7 +427,7 @@ void main() {
           stage: AppStage.review,
           session: sampleSession(),
           saveStatus: SaveStatus.burning);
-      c.receiveFromAnotherLaunch(r'C:\Дела\ещё.mp4');
+      c.receiveFromAnotherLaunch(r'C:\Записи\ещё.mp4');
       expect(c.notice?.title, busyTitle);
       expect(c.videoPath, sampleSession().videoPath);
     });
@@ -449,7 +449,7 @@ void main() {
       final (h, _, _) = await turkishVideo();
       final c = h.controller;
       final video = h.copyVideo(probeClip,
-          folder: p.join('Дела', 'Дело №7 (тест)'), name: 'clip.mp4');
+          folder: p.join('Записи', 'Папка №7 (тест)'), name: 'clip.mp4');
       c.receiveFromAnotherLaunch(video);
       for (var i = 0; i < 600 && c.stage != AppStage.review; i++) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
@@ -457,11 +457,11 @@ void main() {
       expect(c.stage, AppStage.review);
 
       c.receiveFromAnotherLaunch(
-          p.join(h.root.path, 'Дела', 'Дело №8 (тест)', 'ещё.mp4'));
+          p.join(h.root.path, 'Записи', 'Папка №8 (тест)', 'ещё.mp4'));
       expect(c.notice?.title, busyTitle);
 
-      expect(h.log.asText(), isNot(contains('Дело №7')));
-      expect(h.log.asText(), isNot(contains('Дело №8')));
+      expect(h.log.asText(), isNot(contains('Папка №7')));
+      expect(h.log.asText(), isNot(contains('Папка №8')));
       expect(h.log.asText(), contains('ещё.mp4'));
     });
 
@@ -473,7 +473,7 @@ void main() {
     });
 
     // Журнал просят отправить разработчику, а в пути к видео бывают
-    // название дела и фамилии. Раньше путь от повторного запуска
+    // имена и другие личные данные. Раньше путь от повторного запуска
     // попадал в журнал целиком: папка пряталась только при открытии
     // видео, уже после этой записи.
     test('в журнал не попадает папка видео — ни в очереди, ни при '
@@ -487,14 +487,15 @@ void main() {
               session: sampleSession(),
               saveStatus: SaveStatus.burning);
         }
-        final folder = p.join(h.root.path, 'Дела', 'Дело №9 (тест)');
+        final folder = p.join(h.root.path, 'Записи', 'Папка №9 (тест)');
         c.receiveFromAnotherLaunch(p.join(folder, 'запись.mp4'));
         final journal = h.log.asText();
         expect(journal, contains('Видео передано повторным запуском'));
         expect(journal, contains('запись.mp4'),
             reason: 'имя файла остаётся — по нему видно, о каком видео речь');
         expect(journal, isNot(contains(folder)), reason: 'ключ: $storedKey');
-        expect(journal, isNot(contains('Дело №9')), reason: 'ключ: $storedKey');
+        expect(journal, isNot(contains('Папка №9')),
+            reason: 'ключ: $storedKey');
       }
     });
 
@@ -760,8 +761,8 @@ void main() {
       final c = h.controller;
       final stt = FakeStt(const []);
       h.stt = stt;
-      final fake = File(p.join(h.root.path, 'протокол.mp4'))
-        ..writeAsStringSync('Выдуманный текст протокола, а не видео.');
+      final fake = File(p.join(h.root.path, 'документ.mp4'))
+        ..writeAsStringSync('Выдуманный текст документа, а не видео.');
       final stages = recordStages(c);
 
       await c.openVideo(fake.path);
@@ -774,11 +775,11 @@ void main() {
       expect(c.notice, isNull);
     });
 
-    test('Перетащили папку дела — сообщение, её названия нет в журнале',
+    test('Перетащили папку вместо видео — сообщение, её названия нет в журнале',
         () async {
       final h = await started();
       final c = h.controller;
-      final folder = Directory(p.join(h.root.path, 'Дела', 'Дело №7 (тест)'))
+      final folder = Directory(p.join(h.root.path, 'Записи', 'Папка №7 (тест)'))
         ..createSync(recursive: true);
 
       await c.openVideo(folder.path);
@@ -788,7 +789,7 @@ void main() {
         ('журнал', h.log.asText()),
         ('«Технические детали»', c.notice!.details),
       ]) {
-        expect(text, isNot(contains('Дело №7')), reason: where);
+        expect(text, isNot(contains('Папка №7')), reason: where);
       }
     });
 
@@ -960,7 +961,7 @@ void main() {
       expect(c.canOpenPartial, isFalse, reason: 'открывать нечего');
       expect(File('$video.subtitler.json').existsSync(), isFalse);
       expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse,
-          reason: 'без сессии нарезка не пригодится — звук дела не хранится');
+          reason: 'без сессии нарезка не пригодится — звук записи не хранится');
 
       await c.goHome();
       expect(c.stage, AppStage.home);
@@ -1262,18 +1263,18 @@ void main() {
       final video = h.copyVideo(probeClip);
       await c.openVideo(video);
 
-      c.updateTranslation(1, 'правка следователя');
-      expect(sessionOnDisk(video).cues.first.ru, isNot('правка следователя'));
+      c.updateTranslation(1, 'правка пользователя');
+      expect(sessionOnDisk(video).cues.first.ru, isNot('правка пользователя'));
       // flush() здесь не зовём: он записал бы отложенную правку сам, и
       // тест не заметил бы, что таймер не заведён или не сработал. Правка
       // должна дойти до диска без явных действий — на случай, если
       // программа упадёт или компьютер выключат.
       await eventually(
         () =>
-            sessionOnDisk(video).cues.first.ru == 'правка следователя' &&
+            sessionOnDisk(video).cues.first.ru == 'правка пользователя' &&
             File(beside(video, '_ru.srt'))
                 .readAsStringSync()
-                .contains('правка следователя'),
+                .contains('правка пользователя'),
         reason: 'правка не записалась сама через editSaveDelay',
       );
     });
@@ -1286,10 +1287,10 @@ void main() {
       expect(c.stage, AppStage.review);
       await c.goHome();
 
-      // Папку дела скопировали: видео и его сессия лежат по новому пути,
+      // Папку с видео скопировали: видео и его сессия лежат по новому пути,
       // прежняя копия осталась на месте.
       final videoB = h.copyVideo(videoA,
-          folder: 'копия дела', name: p.basename(videoA));
+          folder: 'копия папки', name: p.basename(videoA));
       File('$videoA.subtitler.json').copySync('$videoB.subtitler.json');
       final sessionA = File('$videoA.subtitler.json').readAsStringSync();
       final srtA = File(beside(videoA, '_ru.srt')).readAsStringSync();
@@ -1298,19 +1299,19 @@ void main() {
       await c.openVideo(videoB);
       expect(c.stage, AppStage.review);
       expect(stt.calls, isEmpty, reason: 'сессия подошла по отпечатку');
-      c.updateTranslation(1, 'правка следователя');
+      c.updateTranslation(1, 'правка пользователя');
       await c.flush();
 
-      expect(sessionOnDisk(videoB).cues.first.ru, 'правка следователя');
+      expect(sessionOnDisk(videoB).cues.first.ru, 'правка пользователя');
       expect(File(beside(videoB, '_ru.srt')).readAsStringSync(),
-          contains('правка следователя'));
+          contains('правка пользователя'));
       expect(File('$videoA.subtitler.json').readAsStringSync(), sessionA,
-          reason: 'правка не должна уходить к чужой копии вещдока');
+          reason: 'правка не должна уходить к чужой копии видео');
       expect(File(beside(videoA, '_ru.srt')).readAsStringSync(), srtA);
 
       await c.goHome();
       await c.openVideo(videoB);
-      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(c.session!.cues.first.ru, 'правка пользователя');
       expect(stt.calls, isEmpty);
     });
 
@@ -1356,7 +1357,7 @@ void main() {
       final onE = protectedCopy('носитель E');
       await c.openVideo(onE);
       expect(c.stage, AppStage.review);
-      c.updateTranslation(1, 'правка следователя');
+      c.updateTranslation(1, 'правка пользователя');
       await c.flush();
       await c.goHome();
 
@@ -1370,13 +1371,13 @@ void main() {
       expect(c.stage, AppStage.review);
       expect(stt.calls, isEmpty, reason: 'ролик уже распознан — не платим');
       expect(translate.calls, 0);
-      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(c.session!.cues.first.ru, 'правка пользователя');
     });
 
     // Замечание ревью к предыдущему: файлы в папке программы, записанные
     // по другому пути, побеждали свою сессию рядом с видео, если были
     // новее. Рабочая копия открывалась с чужим текстом, и следующая же
-    // правка затирала её файл сессии вместе с правками по делу.
+    // правка затирала её файл сессии вместе с правками пользователя.
     test('Рабочая копия открывается со своими правками, даже если оригинал '
         'с защищённой флешки правили позже', () async {
       final h = await started();
@@ -1385,9 +1386,9 @@ void main() {
       h.stt = stt;
       // Рабочая копия на диске: сессия с правкой рядом с видео.
       final work =
-          h.copyVideo(probeClip, folder: 'дело 1', name: 'VID_0001.mp4');
+          h.copyVideo(probeClip, folder: 'папка 1', name: 'VID_0001.mp4');
       await c.openVideo(work);
-      c.updateTranslation(1, 'правка дела 1');
+      c.updateTranslation(1, 'правка папки 1');
       await c.flush();
       await c.goHome();
       File('$work.subtitler.json').setLastModifiedSync(
@@ -1408,13 +1409,13 @@ void main() {
       await c.openVideo(work);
       expect(c.stage, AppStage.review);
       expect(stt.calls, isEmpty);
-      expect(c.session!.cues.first.ru, 'правка дела 1');
-      c.updateTranslation(2, 'ещё правка дела 1');
+      expect(c.session!.cues.first.ru, 'правка папки 1');
+      c.updateTranslation(2, 'ещё правка папки 1');
       await c.flush();
       final own = sessionOnDisk(work);
-      expect(own.cues.first.ru, 'правка дела 1',
-          reason: 'правка по делу не затёрта чужим текстом');
-      expect(own.cues[1].ru, 'ещё правка дела 1');
+      expect(own.cues.first.ru, 'правка папки 1',
+          reason: 'правка папки 1 не затёрта чужим текстом');
+      expect(own.cues[1].ru, 'ещё правка папки 1');
     });
 
     // Дефект 3: «Вшить» сразу после правки брал с диска старый SRT —
@@ -1424,17 +1425,23 @@ void main() {
       final c = h.controller;
       await c.openVideo(video);
       String? burned;
-      h.runner.onBurn = (_) => burned = File(
-              p.join(h.runtime.workDirFor(video), 'burn_ru.srt'))
-          .readAsStringSync();
+      String? srtBeside;
+      Session? session;
+      // После сохранения .srt и сессия удаляются — смотрим, что лежало на
+      // диске, пока шло вшивание.
+      h.runner.onBurn = (_) {
+        burned = File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt'))
+            .readAsStringSync();
+        srtBeside = File(beside(video, '_ru.srt')).readAsStringSync();
+        session = sessionOnDisk(video);
+      };
 
-      c.updateTranslation(1, 'свежая правка следователя');
+      c.updateTranslation(1, 'свежая правка пользователя');
       await c.save();
 
-      expect(burned, contains('свежая правка следователя'));
-      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
-          contains('свежая правка следователя'));
-      expect(sessionOnDisk(video).cues.first.ru, 'свежая правка следователя');
+      expect(burned, contains('свежая правка пользователя'));
+      expect(srtBeside, contains('свежая правка пользователя'));
+      expect(session!.cues.first.ru, 'свежая правка пользователя');
     });
   });
 
@@ -1456,18 +1463,62 @@ void main() {
       expect(File(p.join(h.runtime.workDirFor(video), 'burn_ru.srt')).existsSync(),
           isFalse);
       expect(Directory(h.runtime.workDirFor(video)).existsSync(), isFalse);
-      expect(File(beside(video, '_ru.srt')).existsSync(), isTrue);
-      expect(File('$video.subtitler.json').existsSync(), isTrue);
+      // Видео готово — .srt и файл сессии больше не нужны: рядом с
+      // исходником остаётся только готовое видео.
+      expect(File(beside(video, '_orig.srt')).existsSync(), isFalse);
+      expect(File(beside(video, '_ru.srt')).existsSync(), isFalse);
+      expect(File('$video.subtitler.json').existsSync(), isFalse);
+      expect(c.outputInFallback, isFalse);
+      expect(c.outputDir, p.dirname(video));
 
       await c.revealOutput();
       expect(h.revealed, [result.videoPath]);
       expect(h.shared, isEmpty);
 
-      // Правка после сохранения — готовый файл устарел.
+      // Правка после сохранения — готовый файл устарел, а правка снова
+      // пишется на диск, пока видео не сохранят заново.
       c.updateTranslation(1, 'ещё одна правка');
       expect(c.saveStatus, SaveStatus.idle);
       expect(c.saveResult, isNull);
+      await c.flush();
+      expect(sessionOnDisk(video).cues.first.ru, 'ещё одна правка');
+      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
+          contains('ещё одна правка'));
     }, skip: burnSkip);
+
+    test('После сохранения удаляются и резервные копии языков', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      await c.switchLanguage('uz-UZ');
+      await c.switchLanguage('tr-TR');
+      expect(File('$video.subtitler.uz-UZ.json').existsSync(), isTrue);
+      expect(c.languageChoices.first.ready, isTrue);
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
+      expect(File('$video.subtitler.json').existsSync(), isFalse);
+      expect(File('$video.subtitler.uz-UZ.json').existsSync(), isFalse);
+      final uzbek = c.languageChoices.firstWhere((l) => l.code == 'uz-UZ');
+      expect(uzbek.ready, isFalse,
+          reason: 'копии нет — меню не обещает бесплатного переключения');
+    }, skip: burnSkip);
+
+    test('Сохранение не удалось — .srt и сессия остаются', () async {
+      final (h, _, video) = await turkishVideo();
+      final c = h.controller;
+      await c.openVideo(video);
+      h.runner.rewriteBurn = withoutSubtitles;
+
+      await c.save();
+
+      expect(c.saveStatus, SaveStatus.failed);
+      expect(File(beside(video, '_ru.srt')).existsSync(), isTrue);
+      expect(File(beside(video, '_orig.srt')).existsSync(), isTrue);
+      expect(File('$video.subtitler.json').existsSync(), isTrue,
+          reason: 'распознанное не оплачивается второй раз');
+    });
 
     // Дефект 4: во время вшивания интерфейс писал «Готово» — прогресс
     // приходил как этап done без счёта.
@@ -1523,12 +1574,14 @@ void main() {
       const marked = '{неразборчиво: говорят двое сразу, шумит улица}';
       c.updateTranslation(1, marked);
       c.updateTranslation(3, 'вечером');
+      String? srtBeside;
+      h.runner.onBurn =
+          (_) => srtBeside = File(beside(video, '_ru.srt')).readAsStringSync();
 
       await c.save();
 
       expect(c.saveStatus, SaveStatus.saved, reason: '${c.saveError}');
-      expect(File(beside(video, '_ru.srt')).readAsStringSync(),
-          contains(marked),
+      expect(srtBeside, contains(marked),
           reason: 'файл для человека — без экранирования');
     }, skip: burnSkip);
 
@@ -1599,6 +1652,9 @@ void main() {
         expect(target.lengthSync(), verifiedLength);
         expect(partial.existsSync(), isFalse);
         expect(h.controller.saveResult!.videoPath, target.path);
+        // Первая попытка оставила .srt и сессию — повтор их убирает.
+        expect(File(beside(video, '_ru.srt')).existsSync(), isFalse);
+        expect(File('$video.subtitler.json').existsSync(), isFalse);
       });
 
       test('после правки временное видео устарело — удаляется, повтор '
@@ -1643,7 +1699,8 @@ void main() {
     test('Рядом с видео писать нельзя — всё в папке приложения', () async {
       final (h, _, _) = await turkishVideo();
       final c = h.controller;
-      final folder = Directory(p.join(h.root.path, 'вещдок'))..createSync();
+      final folder = Directory(p.join(h.root.path, 'только-чтение'))
+        ..createSync();
       final video = p.join(folder.path, 'clip.mp4');
       File(probeClip).copySync(video);
       addTearDown(makeUnwritable(folder.path, video));
@@ -1658,18 +1715,27 @@ void main() {
       expect(result.inFallback, isTrue);
       expect(result.videoPath, startsWith(h.runtime.outputDir));
       expect(File(result.videoPath).existsSync(), isTrue);
-      expect(File(result.ruSrtPath).readAsStringSync(), contains('RU:'));
       expect(c.outputDir, result.dir);
+      // .srt из запасной папки и сессия из папки программы убраны так же,
+      // как рядом с видео.
+      expect(Directory(result.dir).listSync().map((e) => p.basename(e.path)),
+          ['clip_ru.mp4']);
+      expect(
+          File(SessionStore(fallbackDir: h.runtime.supportDir)
+                  .fallbackPathFor(video))
+              .existsSync(),
+          isFalse);
     }, skip: burnSkip);
 
     // Замечание ревью c20: при запасной папке сообщение уверяло, что .srt
     // «уже лежат рядом с видео», а плашка на том же экране — что они в
-    // папке программы. Следователь искал бы их не там.
+    // папке программы. Человек искал бы их не там.
     test('Субтитры не видны, а .srt в папке приложения — сообщение называет '
         'эту папку', () async {
       final (h, _, _) = await turkishVideo();
       final c = h.controller;
-      final folder = Directory(p.join(h.root.path, 'вещдок'))..createSync();
+      final folder = Directory(p.join(h.root.path, 'только-чтение'))
+        ..createSync();
       final video = p.join(folder.path, 'clip.mp4');
       File(probeClip).copySync(video);
       addTearDown(makeUnwritable(folder.path, video));
@@ -1738,8 +1804,8 @@ void main() {
       expect(result.inFallback, isTrue);
       expect(result.videoPath, startsWith(h.runtime.outputDir));
       expect(File(result.videoPath).existsSync(), isTrue);
-      expect(result.ruSrtPath, beside(video, '_ru.srt'),
-          reason: '.srt рядом с видео записать удалось — они там и остались');
+      expect(File(beside(video, '_ru.srt')).existsSync(), isFalse,
+          reason: '.srt, записанные рядом с видео, убраны и оттуда');
       expect(c.outputInFallback, isTrue, reason: 'плашка с путём к видео');
       expect(h.runner.burnCalls, 2);
       expect(File(beside(video, '_ru.mp4')).existsSync(), isFalse);
@@ -1760,14 +1826,12 @@ void main() {
       expect(h.runner.burnCalls, 1);
     });
 
-    test('Android: вместо «Открыть папку» — «Поделиться» видео и обоими .srt',
+    test('Android: вместо «Открыть папку» — «Поделиться» готовым видео',
         () async {
       final h = await started(isMobile: true);
       final c = h.controller;
       const result = SaveResult(
         videoPath: '/data/clip_ru.mp4',
-        origSrtPath: '/data/clip_orig.srt',
-        ruSrtPath: '/data/clip_ru.srt',
         inFallback: false,
       );
       c.debugEmulate(
@@ -1776,15 +1840,15 @@ void main() {
           saveStatus: SaveStatus.saved,
           saveResult: result);
       await c.revealOutput();
-      expect(h.shared.single,
-          ['/data/clip_ru.mp4', '/data/clip_orig.srt', '/data/clip_ru.srt']);
+      expect(h.shared.single, ['/data/clip_ru.mp4'],
+          reason: '.srt после сохранения удалены — отдавать нечего');
       expect(h.revealed, isEmpty);
     });
   });
 
   // Журнал просят «сохранить и отправить разработчику». Раньше в нём были
   // распознанная речь (пробы всех языков и каждая реплика) и полные пути
-  // к видео с названиями дел.
+  // к видео с личными данными в названиях папок.
   test('В журнале нет ни текста записей, ни папки видео; ключ замаскирован',
       () async {
     final (h, stt, _) = await turkishVideo();
@@ -1792,7 +1856,7 @@ void main() {
     final logFile = p.join(h.root.path, 'журнал', 'subtitler.log');
     h.log.attachFile(logFile);
     final video = h.copyVideo(probeClip,
-        folder: p.join('Дела', 'Дело №7 (тест)'), name: 'clip.mp4');
+        folder: p.join('Записи', 'Папка №7 (тест)'), name: 'clip.mp4');
     final folder = p.dirname(video);
 
     await c.openVideo(video);
@@ -1823,7 +1887,7 @@ void main() {
       }
       expect(journal, isNot(contains('RU:')), reason: 'перевод $where');
       expect(journal, isNot(contains(folder)), reason: 'папка видео $where');
-      expect(journal, isNot(contains('Дело №7')), reason: where);
+      expect(journal, isNot(contains('Папка №7')), reason: where);
       expect(journal, isNot(contains(kTestApiKey)), reason: where);
     }
     expect(h.log.asText(), contains('clip.mp4'),
@@ -1832,15 +1896,15 @@ void main() {
   }, skip: burnSkip);
 
   // В сессии и её резервной копии записан путь, по которому видео открыли
-  // в прошлый раз. Папку дела переименовали — следующий запуск прячет в
-  // журнале только новую папку. Прежнее название (с фамилией) не должно
+  // в прошлый раз. Папку с видео переименовали — следующий запуск прячет в
+  // журнале только новую папку. Прежнее название (с именем человека) не должно
   // попасть в журнал ни при открытии, ни при смене языка, правке и
   // сохранении: всё это пишется по пути открытого видео.
-  test('Папку дела переименовали — прежнего названия в журнале нет',
+  test('Папку с видео переименовали — прежнего названия в журнале нет',
       () async {
     final (h, stt, _) = await turkishVideo();
     final video = h.copyVideo(probeClip,
-        folder: p.join('Дела', 'Дело 5 Иванов'), name: 'clip.mp4');
+        folder: p.join('Записи', 'Папка 5 Иванов'), name: 'clip.mp4');
     await h.controller.openVideo(video);
     expect(h.controller.stage, AppStage.review);
     // Второй язык — платно: турецкий вариант уходит в резервную копию со
@@ -1849,10 +1913,10 @@ void main() {
     expect(h.controller.language, 'uz-UZ');
     await h.controller.goHome();
     expect(File('$video.subtitler.tr-TR.json').readAsStringSync(),
-        contains('Дело 5 Иванов'),
+        contains('Папка 5 Иванов'),
         reason: 'в копии записан прежний путь — на нём и держится проверка');
 
-    final renamed = p.join(h.root.path, 'Дела', 'Дело 7 Петров');
+    final renamed = p.join(h.root.path, 'Записи', 'Папка 7 Петров');
     Directory(p.dirname(video)).renameSync(renamed);
     final moved = p.join(renamed, 'clip.mp4');
     expect(sessionOnDisk(moved).videoPath, video);
@@ -1871,7 +1935,7 @@ void main() {
     await c.switchLanguage('tr-TR');
     expect(c.language, 'tr-TR');
     expect(stt.calls, isEmpty, reason: 'оба языка уже распознаны');
-    c.updateTranslation(1, 'выдуманная правка следователя');
+    c.updateTranslation(1, 'выдуманная правка пользователя');
     await c.flush();
     await c.save();
     expect(c.saveStatus, SaveStatus.saved);
@@ -1885,7 +1949,7 @@ void main() {
       '«Технические детали»': c.recentLog(lines: 1000),
     };
     for (final MapEntry(key: where, value: journal) in journals.entries) {
-      for (final name in ['Дело 5', 'Иванов', 'Дело 7', 'Петров']) {
+      for (final name in ['Папка 5', 'Иванов', 'Папка 7', 'Петров']) {
         expect(journal, isNot(contains(name)), reason: '$name $where');
       }
     }
@@ -1897,7 +1961,7 @@ void main() {
       final (h, stt, video) = await turkishVideo();
       final c = h.controller;
       await c.openVideo(video);
-      c.updateTranslation(1, 'правка следователя');
+      c.updateTranslation(1, 'правка пользователя');
 
       // Первый раз на узбекский — платно, но только непробованная реплика.
       stt.calls.clear();
@@ -1925,7 +1989,7 @@ void main() {
       expect(translate.calls, 0);
       expect(c.stage, AppStage.review);
       expect(c.language, 'tr-TR');
-      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(c.session!.cues.first.ru, 'правка пользователя');
       expect(c.languageChoices.first.code, 'uz-UZ');
       expect(c.languageChoices.first.ready, isTrue);
       expect(stages.last, AppStage.review);
@@ -2116,7 +2180,7 @@ void main() {
       final (h, stt, video) = await turkishVideo();
       final c = h.controller;
       await c.openVideo(video);
-      c.updateTranslation(1, 'правка следователя');
+      c.updateTranslation(1, 'правка пользователя');
 
       // «Не тот язык? → узбекский»: реплика 2 ушла в распознавание, и
       // человек передумал, пока запрос в пути.
@@ -2130,7 +2194,7 @@ void main() {
 
       final main = sessionOnDisk(video);
       expect(main.lang, 'tr-TR', reason: 'основной осталась прежняя сессия');
-      expect(main.cues.first.ru, 'правка следователя');
+      expect(main.cues.first.ru, 'правка пользователя');
       expect(main.langConfidence, LanguageConfidence.high);
       final store = SessionStore(fallbackDir: h.runtime.supportDir);
       final uzbek = await store.loadBackup(video, 'uz-UZ', main.fingerprint);
@@ -2139,7 +2203,7 @@ void main() {
 
       expect(c.stage, AppStage.review);
       expect(c.language, 'tr-TR');
-      expect(c.session!.cues.first.ru, 'правка следователя');
+      expect(c.session!.cues.first.ru, 'правка пользователя');
       expect(c.notice!.title, 'Смена языка отменена');
 
       // Снова открыли то же видео — турецкий вариант, без запросов.

@@ -20,17 +20,29 @@ Future<void> _submit(WidgetTester tester, String key) async {
 }
 
 void main() {
-  testWidgets('без ключа — что за ключ, какие роли, поле скрыто',
+  testWidgets('без ключа — что за ключ, как его создать, поле скрыто',
       (tester) async {
     final h = await started(storedKey: null);
     expect(h.controller.stage, AppStage.needsKey);
-    await pumpApp(tester, h.controller);
+    final help = HelpWindowSpy();
+    await pumpApp(tester, h.controller, helpWindow: help);
+    final opened = help.opened; // руководство первого запуска
 
     expect(find.text('Ключ Яндекс Облака'), findsOneWidget);
-    expect(find.textContaining('API-ключ сервисного аккаунта'), findsOneWidget);
-    expect(find.textContaining('ai.speechkit-stt.user — распознавание речи'),
+    expect(find.textContaining('нужен API-ключ Яндекс Облака'), findsOneWidget);
+
+    // «Как создать ключ» — коротко, роли — для администратора облака, а
+    // подробно, с картинками, — в руководстве.
+    await tester.tap(find.text('Как создать ключ'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('aistudio.yandex.ru'), findsOneWidget);
+    expect(find.textContaining('ai.speechkit-stt.user (распознавание речи)'),
         findsOneWidget);
-    expect(find.textContaining('ai.translate.user — перевод'), findsOneWidget);
+    expect(find.textContaining('ai.translate.user (перевод)'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('key-guide')));
+    await tester.pump();
+    expect(help.opened, opened + 1);
+
     expect(find.text('Проверить и сохранить'), findsOneWidget);
     expect(tester.widget<TextField>(_keyField).obscureText, isTrue);
     // Отмены нет: возвращаться некуда.

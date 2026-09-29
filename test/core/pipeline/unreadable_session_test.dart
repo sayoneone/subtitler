@@ -35,7 +35,7 @@ void main() {
         forcedSplit: false,
         cues: const [
           Cue(index: 1, range: TimeRange(0, 4), orig: 'ertaga ertalab',
-              ru: 'правка следователя', status: CueStatus.ok, flags: {}),
+              ru: 'правка пользователя', status: CueStatus.ok, flags: {}),
         ],
       ).toJson());
 
@@ -45,7 +45,7 @@ void main() {
 
   Future<(LanguageProbe, DebugLog, Directory)> detect(
       Object Function(String video) unreadable) async {
-    final folder = Directory(p.join(tmp.path, 'дело${counter++}'))
+    final folder = Directory(p.join(tmp.path, 'папка${counter++}'))
       ..createSync();
     final video = p.join(folder.path, 'clip.mp4');
     File(probeClip).copySync(video);
@@ -142,12 +142,12 @@ void main() {
 
   // Замечание ревью P2: текст FormatException из jsonDecode содержит
   // строку файла у места ошибки, а у обрезанного файла это обычно перевод,
-  // правка следователя или распознанная речь. Журнал отправляют
-  // разработчику — материалов дела в нём быть не должно.
+  // правка пользователя или распознанная речь. Журнал отправляют
+  // разработчику — содержимого записей в нём быть не должно.
   test('В журнал не попадает текст из обрезанного файла', () async {
     final (_, log, _) = await detect((video) {
       final full = sessionJson(video);
-      return full.substring(0, full.indexOf('правка следователя') + 10);
+      return full.substring(0, full.indexOf('правка пользователя') + 10);
     });
     final journal = log.asText();
     expect(journal, contains('не читается'),
