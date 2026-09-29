@@ -377,6 +377,13 @@ jobs:
               $main = @([TopWindows]::Of([uint32]$app.Id)) |
                       Where-Object { [TopWindows]::Title($_) -eq 'Subtitler' } | Select-Object -First 1
               [TopWindows]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+              # ВРЕМЕННО: как меняются окна после закрытия.
+              $prev = ''
+              for ($t = 0; $t -lt 40 -and -not $app.HasExited; $t++) {
+                $now = ([TopWindows]::Describe([uint32]$app.Id)) -join "`n"
+                if ($now -ne $prev) { Write-Host "  +$($t * 100) мс:"; $now -split "`n" | ForEach-Object { Write-Host "    $_" }; $prev = $now }
+                Start-Sleep -Milliseconds 100
+              }
               if (-not $app.WaitForExit(20000)) {
                 $failures.Add("$($label): программа не закрылась за 20 с после закрытия главного окна")
                 Stop-Process -Id $app.Id -Force
@@ -405,6 +412,11 @@ jobs:
             if ($titles.Count -ne 1) { $failures.Add("Второй запуск: руководство снова открылось само: $($titles -join ', ')") }
             Test-Close $app 'Без руководства' 'subtitler-2.log'
 
+            # ВРЕМЕННО: трассировка закрытия из запускалки и журнал.
+            $trace = Join-Path $env:TEMP 'subtitler-close-trace.txt'
+            if (Test-Path $trace) { Get-Content $trace | ForEach-Object { Write-Host "  trace: $_" } }
+            Get-Content (Join-Path first-launch 'subtitler-1.log') -Encoding utf8 -ErrorAction SilentlyContinue |
+              Select-Object -Last 8 | ForEach-Object { Write-Host "  log1: $_" }
             if ($failures.Count) { throw ($failures -join '; ') }
           } catch {
             Write-Host "::error title=Первый запуск::$($_.Exception.Message)"

@@ -141,6 +141,7 @@ class _AppShellState extends State<AppShell> {
   /// (windows/runner/flutter_window.cpp). Ответ — можно закрываться.
   Future<Object?> _onHelpChannelCall(MethodCall call) async {
     if (call.method != 'exit') throw MissingPluginException();
+    c.log.info('Главное окно закрывают при открытом руководстве');
     await _onExitRequested();
     return null;
   }

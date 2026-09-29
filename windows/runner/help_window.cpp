@@ -4,6 +4,8 @@
 
 #include <optional>
 
+void CloseTrace(const char* what);  // TEMPORARY, flutter_window.cpp
+
 HelpWindow::HelpWindow() {}
 
 HelpWindow::~HelpWindow() {}
@@ -32,6 +34,7 @@ bool HelpWindow::OnCreate() {
 }
 
 void HelpWindow::OnDestroy() {
+  CloseTrace("help OnDestroy");
   flutter_controller_ = nullptr;
   Win32Window::OnDestroy();
 }
@@ -49,6 +52,9 @@ HelpWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM const wparam,
   }
 
   switch (message) {
+    case WM_CLOSE:
+      CloseTrace("help WM_CLOSE");
+      break;
     case WM_FONTCHANGE:
       if (flutter_controller_) {
         flutter_controller_->engine()->ReloadSystemFonts();
