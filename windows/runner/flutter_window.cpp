@@ -4,23 +4,11 @@
 #include <flutter/standard_method_codec.h>
 
 #include <algorithm>
-#include <cstdio>
 #include <optional>
 #include <utility>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "utils.h"
-
-// TEMPORARY close trace for CI diagnostics.
-void CloseTrace(const char* what) {
-  wchar_t dir[MAX_PATH];
-  if (::GetTempPathW(MAX_PATH, dir) == 0) return;
-  std::wstring path = std::wstring(dir) + L"subtitler-close-trace.txt";
-  FILE* file = nullptr;
-  if (_wfopen_s(&file, path.c_str(), L"a") != 0 || file == nullptr) return;
-  fprintf(file, "%lu %s\n", static_cast<unsigned long>(::GetTickCount()), what);
-  fclose(file);
-}
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
                              std::wstring instance_marker)
@@ -214,20 +202,16 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
       break;
     }
     case WM_CLOSE:
-      CloseTrace(help_window_ ? (help_window_->IsOpen() ? "main WM_CLOSE, help open" : "main WM_CLOSE, help closed") : "main WM_CLOSE, no help");
       // Flutter asks Dart whether to exit (AppShell._onExitRequested:
       // pending edits, the log) only when the last top-level window of the
-      // process is closing. With the guide open it does not ask, and not
-      // even once the guide is gone (the CI check of the first launch
-      // showed it). So then the runner closes the guide, asks Dart itself
-      // over "ru.subtitler/help" and destroys this window when Dart answers.
+      // process is closing, and with the guide open it does not ask. So then
+      // the runner closes the guide, asks Dart itself over
+      // "ru.subtitler/help" and destroys this window when Dart answers.
       if (exit_requested_) {
         return 0;  // Dart is finishing up; the window goes when it answers.
       }
       if (help_window_ && help_window_->IsOpen() && help_channel_) {
-        CloseTrace("destroying help from main WM_CLOSE");
         help_window_ = nullptr;
-        CloseTrace("help destroyed");
         exit_requested_ = true;
         auto close = [hwnd]() {
           // Not from inside the channel reply: destroying the window
@@ -238,21 +222,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
             "exit", nullptr,
             std::make_unique<
                 flutter::MethodResultFunctions<flutter::EncodableValue>>(
-                [close](const flutter::EncodableValue*) { CloseTrace("exit: success"); close(); },
+                [close](const flutter::EncodableValue*) { close(); },
                 [close](const std::string&, const std::string&,
-                        const flutter::EncodableValue*) { CloseTrace("exit: error"); close(); },
-                [close]() { CloseTrace("exit: not implemented"); close(); }));
-        CloseTrace("exit invoked");
+                        const flutter::EncodableValue*) { close(); },
+                [close]() { close(); }));
         return 0;
       }
       help_window_ = nullptr;
       break;
     case kExitConfirmedMessage:
-      CloseTrace("exit confirmed, destroying");
       ::DestroyWindow(hwnd);
       return 0;
     case WM_DESTROY:
-      CloseTrace("main WM_DESTROY");
       // Properties must be removed before the window is gone.
       ::RemovePropW(hwnd, instance_marker_.c_str());
       break;

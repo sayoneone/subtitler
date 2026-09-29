@@ -4,11 +4,17 @@
 
 #include <optional>
 
-void CloseTrace(const char* what);  // TEMPORARY, flutter_window.cpp
-
 HelpWindow::HelpWindow() {}
 
-HelpWindow::~HelpWindow() { CloseTrace("~HelpWindow"); }
+HelpWindow::~HelpWindow() {
+  // Destroyed while this is still a HelpWindow: OnDestroy releases the
+  // controller with reset(), so the messages its view sends to this window
+  // while it goes find no controller. Left to the member destructor, the
+  // controller would still be set while it is being destroyed, and those
+  // messages would reach it: the program crashed when its main window was
+  // closed with the guide open (0xC000041D).
+  Destroy();
+}
 
 bool HelpWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
@@ -34,9 +40,7 @@ bool HelpWindow::OnCreate() {
 }
 
 void HelpWindow::OnDestroy() {
-  CloseTrace(flutter_controller_ ? "help OnDestroy, controller" : "help OnDestroy, empty");
   flutter_controller_ = nullptr;
-  CloseTrace("help controller released");
   Win32Window::OnDestroy();
 }
 
@@ -53,9 +57,6 @@ HelpWindow::MessageHandler(HWND hwnd, UINT const message, WPARAM const wparam,
   }
 
   switch (message) {
-    case WM_CLOSE:
-      CloseTrace("help WM_CLOSE");
-      break;
     case WM_FONTCHANGE:
       if (flutter_controller_) {
         flutter_controller_->engine()->ReloadSystemFonts();
