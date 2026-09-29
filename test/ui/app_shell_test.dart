@@ -481,6 +481,38 @@ void main() {
     await tester.runAsync(h.dispose);
   });
 
+  // Windows: главное окно закрывают при открытом руководстве. Flutter тогда
+  // Dart о выходе не спрашивает, и запускалка спрашивает сама — по каналу
+  // руководства (windows/runner/flutter_window.cpp).
+  testWidgets('закрытие при открытом руководстве — тот же штатный выход',
+      (tester) async {
+    final h = (await tester.runAsync(started))!;
+    final video = p.join(h.root.path, 'videos', 'беседа.mp4');
+    Directory(p.dirname(video)).createSync(recursive: true);
+    await pumpApp(tester, h.controller);
+    await tester.runAsync(() async {
+      h.controller.debugEmulate(
+          stage: AppStage.review, session: sampleSession(videoPath: video));
+      h.controller.updateTranslation(1, 'правка перед закрытием окна');
+    });
+
+    var answered = false;
+    await tester.runAsync(() => tester.binding.defaultBinaryMessenger
+        .handlePlatformMessage(
+            'ru.subtitler/help',
+            const StandardMethodCodec()
+                .encodeMethodCall(const MethodCall('exit')),
+            (_) => answered = true));
+
+    expect(answered, isTrue, reason: 'запускалка ждёт ответа, чтобы закрыть окно');
+    expect(File('$video.subtitler.json').readAsStringSync(),
+        contains('правка перед закрытием окна'));
+    expect(h.log.entries.last.message, 'Окно закрыто');
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.runAsync(h.dispose);
+  });
+
   testWidgets('закрытие окна во время сохранения останавливает ffmpeg и '
       'убирает временный файл рядом с видео', (tester) async {
     // Dart не привязывает ffmpeg к программе: без остановки он кодировал

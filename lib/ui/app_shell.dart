@@ -87,6 +87,7 @@ class _AppShellState extends State<AppShell> {
       onExitRequested: _onExitRequested,
       onHide: () => unawaited(c.flush()),
     );
+    help.kHelpChannel.setMethodCallHandler(_onHelpChannelCall);
     unawaited(c.init());
     _maybeAskLongVideo();
     _maybeShowFirstLaunchHelp();
@@ -104,6 +105,7 @@ class _AppShellState extends State<AppShell> {
 
   @override
   void dispose() {
+    help.kHelpChannel.setMethodCallHandler(null);
     HardwareKeyboard.instance.removeHandler(_onKey);
     c.removeListener(_onChanged);
     _lifecycle.dispose();
@@ -130,6 +132,17 @@ class _AppShellState extends State<AppShell> {
     c.log.info('Окно закрыто');
     await c.log.close();
     return AppExitResponse.exit;
+  }
+
+  /// Главное окно закрывают, пока открыто руководство. Flutter в этом
+  /// случае Dart о выходе не спрашивает (он спрашивает, только когда
+  /// закрывается последнее окно процесса), поэтому запускалка Windows
+  /// закрывает руководство сама и спрашивает здесь
+  /// (windows/runner/flutter_window.cpp). Ответ — можно закрываться.
+  Future<Object?> _onHelpChannelCall(MethodCall call) async {
+    if (call.method != 'exit') throw MissingPluginException();
+    await _onExitRequested();
+    return null;
   }
 
   // -------------------------------------------------------------- журнал

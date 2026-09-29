@@ -21,6 +21,10 @@ class FlutterWindow : public Win32Window {
   // followed by '\0'.
   static constexpr ULONG_PTR kArgumentsMessage = 0x53554254;  // "SUBT"
 
+  // Posted to itself when Dart has finished up before exit (WM_CLOSE with
+  // the guide open): the window may be destroyed.
+  static constexpr UINT kExitConfirmedMessage = WM_APP + 1;
+
   // Creates a new FlutterWindow hosting a Flutter view running |project|.
   // |instance_marker| names the window property by which a repeated launch
   // finds this window.
@@ -62,6 +66,8 @@ class FlutterWindow : public Win32Window {
   std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
       help_channel_;
   std::unique_ptr<HelpWindow> help_window_;
+  // Dart has been asked to finish up before exit (see WM_CLOSE).
+  bool exit_requested_ = false;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

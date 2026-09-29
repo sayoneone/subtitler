@@ -1,5 +1,6 @@
 #include "flutter_window.h"
 
+#include <flutter/method_result_functions.h>
 #include <flutter/standard_method_codec.h>
 
 #include <algorithm>
@@ -203,19 +204,36 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_CLOSE:
       // Flutter asks Dart whether to exit (AppShell._onExitRequested:
       // pending edits, the log) only when the last top-level window of the
-      // process is closing. So the guide goes first. It may also own the
-      // thread's hidden IME window, which is left without an owner and then
-      // counts as one more top-level window. Hence: close the guide, make
-      // this window active (the IME window moves to it) and close again
-      // once that has settled.
-      if (help_window_ && help_window_->IsOpen()) {
+      // process is closing. With the guide open it does not ask, and not
+      // even once the guide is gone (the CI check of the first launch
+      // showed it). So then the runner closes the guide, asks Dart itself
+      // over "ru.subtitler/help" and destroys this window when Dart answers.
+      if (exit_requested_) {
+        return 0;  // Dart is finishing up; the window goes when it answers.
+      }
+      if (help_window_ && help_window_->IsOpen() && help_channel_) {
         help_window_ = nullptr;
-        ::SetActiveWindow(hwnd);
-        ::PostMessage(hwnd, WM_CLOSE, 0, 0);
+        exit_requested_ = true;
+        auto close = [hwnd]() {
+          // Not from inside the channel reply: destroying the window
+          // destroys the engine that is delivering it.
+          ::PostMessage(hwnd, kExitConfirmedMessage, 0, 0);
+        };
+        help_channel_->InvokeMethod(
+            "exit", nullptr,
+            std::make_unique<
+                flutter::MethodResultFunctions<flutter::EncodableValue>>(
+                [close](const flutter::EncodableValue*) { close(); },
+                [close](const std::string&, const std::string&,
+                        const flutter::EncodableValue*) { close(); },
+                [close]() { close(); }));
         return 0;
       }
       help_window_ = nullptr;
       break;
+    case kExitConfirmedMessage:
+      ::DestroyWindow(hwnd);
+      return 0;
     case WM_DESTROY:
       // Properties must be removed before the window is gone.
       ::RemovePropW(hwnd, instance_marker_.c_str());
