@@ -225,7 +225,9 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return 0;  // Dart is finishing up; the window goes when it answers.
       }
       if (help_window_ && help_window_->IsOpen() && help_channel_) {
+        CloseTrace("destroying help from main WM_CLOSE");
         help_window_ = nullptr;
+        CloseTrace("help destroyed");
         exit_requested_ = true;
         auto close = [hwnd]() {
           // Not from inside the channel reply: destroying the window

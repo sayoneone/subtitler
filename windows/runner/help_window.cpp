@@ -8,7 +8,7 @@ void CloseTrace(const char* what);  // TEMPORARY, flutter_window.cpp
 
 HelpWindow::HelpWindow() {}
 
-HelpWindow::~HelpWindow() {}
+HelpWindow::~HelpWindow() { CloseTrace("~HelpWindow"); }
 
 bool HelpWindow::OnCreate() {
   if (!Win32Window::OnCreate()) {
@@ -34,8 +34,9 @@ bool HelpWindow::OnCreate() {
 }
 
 void HelpWindow::OnDestroy() {
-  CloseTrace("help OnDestroy");
+  CloseTrace(flutter_controller_ ? "help OnDestroy, controller" : "help OnDestroy, empty");
   flutter_controller_ = nullptr;
+  CloseTrace("help controller released");
   Win32Window::OnDestroy();
 }
 
