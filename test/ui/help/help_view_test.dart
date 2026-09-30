@@ -2,11 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:subtitler/app/app_controller.dart';
-import 'package:subtitler/app/settings.dart';
 import 'package:subtitler/ui/help/help_view.dart';
 import 'package:subtitler/ui/help/help_window.dart';
 
-import '../../support/fakes.dart';
 import '../support.dart';
 
 /// Экран руководства и его загрузка из ассетов (в виджет-тесте ассеты
@@ -18,53 +16,25 @@ String counter(WidgetTester tester) =>
     tester.widget<Text>(find.byKey(const ValueKey('help-counter'))).data!;
 
 void main() {
-  group('Первый запуск', () {
-    testWidgets('руководство открывается само — один раз, и это '
-        'запоминается', (tester) async {
+  // Руководство открывают кнопкой «Как пользоваться» или «Подробно, с
+  // картинками» на экране ключа. Само оно не открывается: при первом
+  // запуске его окно закрывало собой экран ключа.
+  group('Само не открывается', () {
+    testWidgets('ни при первом запуске, ни потом', (tester) async {
       final h = await started(storedKey: null);
       final help = HelpWindowSpy();
       await pumpApp(tester, h.controller, helpWindow: help);
       await tester.pump();
+      expect(find.text('Ключ Яндекс Облака'), findsOneWidget);
 
-      expect(help.opened, 1);
-      expect(find.text('Ключ Яндекс Облака'), findsOneWidget,
-          reason: 'в главном окне — экран ключа');
-      final saved = await (h.settingsStore as MemorySettingsStore).load();
-      expect(saved.helpShown, isTrue);
-
-      // Дальнейшие изменения этапа руководство заново не открывают.
-      h.controller.debugEmulate(stage: AppStage.home);
+      h.controller.debugEmulate(stage: AppStage.home, hasKey: true);
       await tester.pump();
       await tester.pump();
-      expect(help.opened, 1);
-      await closeApp(tester, h);
-    });
-
-    testWidgets('при следующих запусках само не открывается', (tester) async {
-      final h = await started(settings: const AppSettings(helpShown: true));
-      final help = HelpWindowSpy();
-      await pumpApp(tester, h.controller, helpWindow: help);
-      await tester.pump();
-
       expect(help.opened, 0);
       await closeApp(tester, h);
     });
 
-    testWidgets('программа не может работать — руководство не открывается',
-        (tester) async {
-      final h = await started(noFfmpeg: true);
-      expect(h.controller.stage, AppStage.broken);
-      final help = HelpWindowSpy();
-      await pumpApp(tester, h.controller, helpWindow: help);
-      await tester.pump();
-
-      expect(help.opened, 0);
-      final saved = await (h.settingsStore as MemorySettingsStore).load();
-      expect(saved.helpShown, isFalse, reason: 'откроется, когда починят');
-      await closeApp(tester, h);
-    });
-
-    testWidgets('без отдельных окон — руководство экраном поверх ключа',
+    testWidgets('и на телефоне экран руководства не ложится поверх ключа',
         (tester) async {
       final h = await started(storedKey: null, isMobile: true);
       await pumpApp(tester, h.controller,
@@ -72,8 +42,6 @@ void main() {
           helpWindow: HelpWindowSpy(available: false));
       await settleGuide(tester);
 
-      expect(find.byType(HelpScreen), findsOneWidget);
-      await goBack(tester);
       expect(find.byType(HelpScreen), findsNothing);
       expect(find.text('Ключ Яндекс Облака'), findsOneWidget);
       await closeApp(tester, h);
@@ -83,7 +51,7 @@ void main() {
   group('Кнопка «Как пользоваться»', () {
     testWidgets('рядом с настройками, открывает отдельное окно',
         (tester) async {
-      final h = await started(settings: const AppSettings(helpShown: true));
+      final h = await started();
       final help = HelpWindowSpy();
       await pumpApp(tester, h.controller, helpWindow: help);
 
@@ -103,7 +71,7 @@ void main() {
     });
 
     testWidgets('работает и во время подготовки', (tester) async {
-      final h = await started(settings: const AppSettings(helpShown: true));
+      final h = await started();
       final help = HelpWindowSpy();
       await pumpApp(tester, h.controller, helpWindow: help);
       h.controller.debugEmulate(stage: AppStage.starting);
@@ -117,7 +85,7 @@ void main() {
 
     testWidgets('нет отдельных окон — руководство экраном поверх программы',
         (tester) async {
-      final h = await started(settings: const AppSettings(helpShown: true));
+      final h = await started();
       await pumpApp(tester, h.controller,
           helpWindow: HelpWindowSpy(available: false));
 

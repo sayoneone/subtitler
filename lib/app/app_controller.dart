@@ -472,8 +472,6 @@ class AppController extends ChangeNotifier {
 
   SessionStore? _sessionStore;
 
-  bool _firstLaunchHelp = false;
-
   bool get isMobile => services.isMobile;
 
   /// Пункт меню «⋮ → Отладочный стенд» (для разработчика) виден.
@@ -727,7 +725,6 @@ class AppController extends ChangeNotifier {
     _sessionStore = SessionStore(fallbackDir: runtime.supportDir, log: log);
     _settingsStore = services.settingsStore(runtime.supportDir, log);
     _settings = await _settingsStore!.load();
-    _firstLaunchHelp = !_settings.helpShown;
     log.info('Языки для автоопределения: '
         '${_settings.detectionCandidates.join(', ')}');
 
@@ -793,21 +790,6 @@ class AppController extends ChangeNotifier {
     }
     _notify();
     _openPendingVideo();
-  }
-
-  /// Первый запуск: руководство ещё ни разу не открывалось. Оболочка
-  /// спрашивает об этом при каждом изменении; `true` вернётся один раз —
-  /// когда программа готова к работе (не на подготовке и не на экране
-  /// поломки, где руководство не поможет), — и это запоминается в
-  /// настройках: при следующих запусках руководство открывают кнопкой.
-  bool takeFirstLaunchHelp() {
-    if (!_firstLaunchHelp) return false;
-    if (_stage == AppStage.starting || _stage == AppStage.broken) return false;
-    _firstLaunchHelp = false;
-    _settings = _settings.copyWith(helpShown: true);
-    unawaited(_settingsStore?.save(_settings));
-    log.info('Первый запуск — открываем руководство');
-    return true;
   }
 
   void _broken(UserError error) {

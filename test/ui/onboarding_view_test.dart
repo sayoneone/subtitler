@@ -26,7 +26,6 @@ void main() {
     expect(h.controller.stage, AppStage.needsKey);
     final help = HelpWindowSpy();
     await pumpApp(tester, h.controller, helpWindow: help);
-    final opened = help.opened; // руководство первого запуска
 
     expect(find.text('Ключ Яндекс Облака'), findsOneWidget);
     expect(find.textContaining('нужен API-ключ Яндекс Облака'), findsOneWidget);
@@ -41,7 +40,7 @@ void main() {
     expect(find.textContaining('ai.translate.user (перевод)'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('key-guide')));
     await tester.pump();
-    expect(help.opened, opened + 1);
+    expect(help.opened, 1);
 
     expect(find.text('Проверить и сохранить'), findsOneWidget);
     expect(tester.widget<TextField>(_keyField).obscureText, isTrue);

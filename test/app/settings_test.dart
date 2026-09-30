@@ -59,20 +59,4 @@ void main() {
     expect(empty.detectionCandidates, kDefaultDetectionCandidates);
     expect(empty.lastLanguage, isNull);
   });
-
-  // Руководство открывается само только при первом запуске. Настройки
-  // версии 0.2 этого поля не знают — после обновления руководство
-  // откроется один раз.
-  test('Руководство уже показывалось — это переживает перезапуск', () async {
-    final path = p.join(tmp.path, 'settings.json');
-    File(path).writeAsStringSync('{"detectionCandidates": ["tr-TR"]}');
-    final store = FileSettingsStore(path, log: DebugLog());
-    final old = await store.load();
-    expect(old.helpShown, isFalse);
-
-    await store.save(old.copyWith(helpShown: true));
-    final loaded = await FileSettingsStore(path, log: DebugLog()).load();
-    expect(loaded.helpShown, isTrue);
-    expect(loaded.detectionCandidates, ['tr-TR']);
-  });
 }

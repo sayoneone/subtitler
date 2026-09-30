@@ -76,8 +76,8 @@ final class HelpWindowController: NSObject, NSWindowDelegate {
     window.isReleasedWhenClosed = false
     window.delegate = self
     window.setContentSize(NSSize(width: 900, height: 860))
-    // У правого края экрана главного окна: при первом запуске нужны оба —
-    // руководство и поле ключа в главном окне.
+    // У правого края экрана главного окна: по руководству заполняют главное
+    // окно (поле ключа, например), и оно не должно закрывать его.
     if let screen = main.screen ?? NSScreen.main {
       let work = screen.visibleFrame
       var frame = window.frame

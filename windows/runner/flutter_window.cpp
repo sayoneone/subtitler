@@ -133,8 +133,8 @@ bool FlutterWindow::OpenHelp(const std::wstring& title) {
   }
 
   // Create() centers the window on the screen, over the main window and
-  // its key field. On the first launch both are needed, so the guide goes
-  // to the right edge of the main window's screen.
+  // its key field. The guide is read while filling that window in, so it
+  // goes to the right edge of the main window's screen.
   HWND help = help_window_->GetHandle();
   HMONITOR monitor = ::MonitorFromWindow(GetHandle(), MONITOR_DEFAULTTONEAREST);
   MONITORINFO monitor_info{};

@@ -28,8 +28,8 @@ import 'strings.dart';
 /// «⚙ Настройки», меню «⋮» и один экран на этап контроллера.
 ///
 /// Руководство открывается отдельным окном, а где его нет (Android) —
-/// экраном поверх программы. При первом запуске оно открывается само
-/// ([AppController.takeFirstLaunchHelp]).
+/// экраном поверх программы. Само оно не открывается: при первом запуске
+/// его окно закрывало собой экран ключа.
 ///
 /// Журнал работы по умолчанию скрыт: он живёт в боковой панели справа и
 /// выдвигается пунктом «⋮ → Журнал работы» или сочетанием Ctrl+Shift+L.
@@ -90,7 +90,6 @@ class _AppShellState extends State<AppShell> {
     help.kHelpChannel.setMethodCallHandler(_onHelpChannelCall);
     unawaited(c.init());
     _maybeAskLongVideo();
-    _maybeShowFirstLaunchHelp();
   }
 
   @override
@@ -116,7 +115,6 @@ class _AppShellState extends State<AppShell> {
     if (!mounted) return;
     setState(() {});
     _maybeAskLongVideo();
-    _maybeShowFirstLaunchHelp();
   }
 
   /// Окно закрывают: сохранение и подготовка звука останавливаются, их
@@ -191,15 +189,6 @@ class _AppShellState extends State<AppShell> {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => const HelpScreen(),
     ));
-  }
-
-  void _maybeShowFirstLaunchHelp() {
-    if (!c.takeFirstLaunchHelp()) return;
-    // После кадра: экран этапа (ключ или главный) уже на месте, и экран
-    // руководства ляжет поверх него, а не под него.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) unawaited(_openHelp());
-    });
   }
 
   void _openDebugStand() {

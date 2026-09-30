@@ -239,11 +239,11 @@ jobs:
           }
 
       # Первый запуск у пользователя: ключа и настроек ещё нет. Программа
-      # должна показать экран ввода ключа и открыть руководство отдельным
-      # окном (windows/runner/help_window.cpp). На раннере ключа и настроек
+      # должна показать экран ввода ключа — и только его: руководство само
+      # не открывается (его открывают кнопкой). На раннере ключа и настроек
       # тоже нет — запускаем собранный exe из папки архива и смотрим на окна.
       # Снимки окон — в артефакте first-launch: так их видно и без Windows.
-      - name: Первый запуск — экран ключа и окно руководства
+      - name: Первый запуск — экран ключа
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path first-launch | Out-Null
@@ -290,12 +290,12 @@ jobs:
 
             $app = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
             $windows = @()
-            for ($i = 0; $i -lt 60 -and $windows.Count -lt 2; $i++) {
+            for ($i = 0; $i -lt 60 -and $windows.Count -lt 1; $i++) {
               Start-Sleep -Milliseconds 500
               if ($app.HasExited) { throw "subtitler.exe завершился при запуске с кодом $($app.ExitCode)" }
               $windows = @([TopWindows]::Of([uint32]$app.Id))
             }
-            # Первый кадр в обоих окнах и загрузка руководства.
+            # Первый кадр и время, за которое руководство открылось бы само.
             Start-Sleep -Seconds 4
             if ($app.HasExited) { throw "subtitler.exe закрылся сам с кодом $($app.ExitCode)" }
             $windows = @([TopWindows]::Of([uint32]$app.Id))
@@ -326,8 +326,8 @@ jobs:
             $screen.Save((Join-Path first-launch 'screen.png'), [System.Drawing.Imaging.ImageFormat]::Png)
 
             if ($titles -notcontains 'Subtitler') { throw "Нет главного окна Subtitler: $($titles -join ', ')" }
-            if ($titles -notcontains 'Subtitler — как пользоваться') {
-              throw "Руководство не открылось отдельным окном: $($titles -join ', ')"
+            if ($titles.Count -ne 1) {
+              throw "Кроме главного окна открылось ещё: $($titles -join ', ') — руководство не должно открываться само"
             }
 
             # Какой экран в главном окне, видно по журналу программы.
@@ -336,73 +336,23 @@ jobs:
             if (-not $log) { throw "Журнал программы не найден в LOCALAPPDATA" }
             $text = Get-Content $log.FullName -Raw -Encoding utf8
             Copy-Item $log.FullName first-launch/subtitler.log
-            foreach ($line in @('Ключ ещё не сохранён', 'Первый запуск — открываем руководство')) {
-              if (-not $text.Contains($line)) { throw "В журнале нет строки «$line»" }
-            }
-            Write-Host "Экран ключа показан, руководство открыто отдельным окном"
+            if (-not $text.Contains('Ключ ещё не сохранён')) { throw "В журнале нет строки «Ключ ещё не сохранён»" }
+            Write-Host "Экран ключа показан, руководство само не открылось"
 
-            # Закрытие. Программа должна выйти штатно, с кодом 0, через
-            # AppShell._onExitRequested, который дописывает правки и журнал:
-            # последняя строка «Окно закрыто». Flutter спрашивает Dart о
-            # выходе, только когда закрывается последнее окно процесса; при
-            # открытом руководстве это делает запускалка
-            # (windows/runner/flutter_window.cpp, WM_CLOSE). Три случая:
-            # руководство закрыли крестиком, а потом главное окно; главное
-            # окно закрыли при открытом руководстве (так программа падала:
-            # help_window.cpp, ~HelpWindow); руководства не было вовсе.
-            $failures = New-Object System.Collections.Generic.List[string]
-            function Close-Window($app, $title) {
-              $hwnd = @([TopWindows]::Of([uint32]$app.Id)) |
-                      Where-Object { [TopWindows]::Title($_) -eq $title } | Select-Object -First 1
-              [TopWindows]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            # Закрытие: программа должна выйти штатно, с кодом 0, через
+            # AppShell._onExitRequested, который дописывает правки и журнал —
+            # последняя строка «Окно закрыто».
+            $main = @([TopWindows]::Of([uint32]$app.Id)) |
+                    Where-Object { [TopWindows]::Title($_) -eq 'Subtitler' } | Select-Object -First 1
+            [TopWindows]::PostMessage($main, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            if (-not $app.WaitForExit(20000)) { throw "Программа не закрылась за 20 с после закрытия окна" }
+            $text = Get-Content $log.FullName -Raw -Encoding utf8
+            Copy-Item $log.FullName first-launch/subtitler.log -Force
+            if ($app.ExitCode -ne 0) { throw "Программа упала при закрытии, код выхода $('0x{0:X8}' -f $app.ExitCode)" }
+            if (-not $text.Contains('Окно закрыто')) {
+              throw "Программа закрылась мимо штатного выхода: в журнале нет «Окно закрыто»"
             }
-            function Test-Close($app, $label, $logCopy) {
-              Close-Window $app 'Subtitler'
-              if (-not $app.WaitForExit(20000)) {
-                $failures.Add("$($label): программа не закрылась за 20 с после закрытия главного окна")
-                Stop-Process -Id $app.Id -Force
-                return
-              }
-              $text = Get-Content $log.FullName -Raw -Encoding utf8
-              Copy-Item $log.FullName (Join-Path first-launch $logCopy) -Force
-              if ($app.ExitCode -ne 0) {
-                $failures.Add("$($label): программа упала, код выхода $('0x{0:X8}' -f $app.ExitCode)")
-              } elseif (-not $text.Contains('Окно закрыто')) {
-                $failures.Add("$($label): программа закрылась мимо штатного выхода, в журнале нет «Окно закрыто»")
-              } else {
-                Write-Host "$($label): штатный выход"
-              }
-            }
-            function Start-App($windowsWanted) {
-              $started = Start-Process -FilePath (Resolve-Path dist/subtitler.exe) -PassThru
-              $found = @()
-              for ($i = 0; $i -lt 60 -and $found.Count -lt $windowsWanted; $i++) {
-                Start-Sleep -Milliseconds 500
-                $found = @([TopWindows]::Of([uint32]$started.Id))
-              }
-              Start-Sleep -Seconds 4
-              return $started
-            }
-
-            Close-Window $app 'Subtitler — как пользоваться'
-            Start-Sleep -Seconds 3
-            if ($app.HasExited) {
-              $failures.Add("Закрытие руководства уронило программу, код выхода $('0x{0:X8}' -f $app.ExitCode)")
-            } else {
-              Test-Close $app 'Руководство закрыли, потом главное окно' 'subtitler-1.log'
-            }
-
-            # Снова первый запуск: без настроек руководство откроется само.
-            Remove-Item (Join-Path $env:APPDATA 'ru.subtitler\subtitler\settings.json') -ErrorAction SilentlyContinue
-            $app = Start-App 2
-            Test-Close $app 'Главное окно закрыли при открытом руководстве' 'subtitler-2.log'
-
-            $app = Start-App 1
-            $titles = @([TopWindows]::Of([uint32]$app.Id) | ForEach-Object { [TopWindows]::Title($_) })
-            if ($titles.Count -ne 1) { $failures.Add("Второй запуск: руководство снова открылось само: $($titles -join ', ')") }
-            Test-Close $app 'Без руководства' 'subtitler-3.log'
-
-            if ($failures.Count) { throw ($failures -join '; ') }
+            Write-Host "Закрытие окна — штатный выход"
           } catch {
             Write-Host "::error title=Первый запуск::$($_.Exception.Message)"
             exit 1
@@ -563,10 +513,10 @@ jobs:
              нажмите «Подробнее», затем «Выполнить в любом случае». Программа не
              подписана сертификатом, поэтому Windows предупреждает о ней при
              первом запуске.
-          5. При первом запуске откроется руководство «Как пользоваться» — в нём
-             по шагам и с картинками, как создать ключ Яндекс Облака. Введите
-             ключ в главном окне программы. Он хранится только на этом
-             компьютере.
+          5. Введите свой API-ключ Яндекс Облака. Как его создать — по шагам и с
+             картинками в руководстве: кнопка «Как пользоваться» справа вверху
+             или «Подробно, с картинками» на экране ключа. Ключ хранится
+             только на этом компьютере.
           EOF
 
           # --verify-tag: публикуем только к уже отправленному тегу и никогда

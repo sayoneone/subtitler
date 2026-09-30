@@ -25,7 +25,6 @@ import 'package:integration_test/integration_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:subtitler/app/app_controller.dart';
 import 'package:subtitler/app/key_check.dart';
-import 'package:subtitler/app/settings.dart';
 import 'package:subtitler/core/models.dart';
 import 'package:subtitler/main.dart';
 
@@ -281,7 +280,7 @@ void main() {
     addTearDown(tester.view.reset);
 
     final h = await started(
-        storedKey: null, settings: const AppSettings(helpShown: true));
+        storedKey: null);
     final c = h.controller;
     late _FramePlayer player;
     await tester.pumpWidget(RepaintBoundary(
